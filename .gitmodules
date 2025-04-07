@@ -1,0 +1,3 @@
+[submodule "DL-MIA"]
+	path = DL-MIA
+	url = https://github.com/elixir-research-group/DL-MIA.git
