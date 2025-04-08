@@ -1,5 +1,6 @@
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 import requests
 
@@ -52,12 +53,12 @@ class OllamaTripleAnnotator:
                 f"Configuration Failed! Is the model name ({self.model}) available in the Ollama library? You can check at https://ollama.com/search"
             )
 
-    def get_judgments(self, stream=False) -> Iterable[str]:
+    def get_judgments(self, stream=False) -> Iterable[Mapping[str, Any]]:
         """
         Method to perform relevance judgment inference over the Ollama local API
 
         :param stream: Determines streaming behavior for Ollama api call - See https://github.com/ollama/ollama/blob/main/docs/api.md for details
-        :yield: The model responses
+        :yield: Model response, status code, predicted relevance score
         """
         ollama_local_headers = {"Content-Type": "application/json"}
         # Check if the default ollama model is available locally, if not prompt user to call configure()
@@ -83,16 +84,20 @@ class OllamaTripleAnnotator:
                 headers=ollama_local_headers,
             )
 
+            result = {
+                "status_code": response.status_code,
+                "model_response": json.loads(response.text),
+            }
+
             # Handle the response
-            if response.status_code == 200:
-                # Successful call, process LLM response
-                response_json = json.loads(response.text)
-                model_message = response_json["response"]
-                yield model_message
-            else:
-                response_json = json.loads(response.text)
-                model_message = response_json["response"]
-                yield {"error": model_message}
+            try:
+                result["relevance_score"] = json.loads(
+                    result["model_response"]["response"]
+                )["Relevance Score"]
+            except Exception as ex:
+                result["error"] = repr(ex)
+            finally:
+                yield result
 
     def _build_prompt(self, query, intent, doc):
         """
