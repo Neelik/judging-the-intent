@@ -22,7 +22,7 @@ class OllamaTripleAnnotator:
         self.triples = triples
         self.model = model
 
-    def configure(self):
+    def configure(self) -> None:
         """
         Method to check if the desired Ollama model is available locally. Installs the model if it is not found.
 
@@ -103,7 +103,7 @@ class OllamaTripleAnnotator:
             finally:
                 yield result
 
-    def _build_prompt(self, query: str, intent: str, doc: str):
+    def _build_prompt(self, query: str, intent: str, doc: str) -> None:
         """
         Internal class method to inject query, intent, and document values into the DNA prompt to be used in model inference
 
@@ -114,7 +114,7 @@ class OllamaTripleAnnotator:
         """
         self.prompt = f'You are a search quality rater evaluating the relevance of web pages.\nGiven a query, an intent description, and a text, you must provide a score on an integer scale of 0 to 3 with the following meanings:\n3=Perfectly relevant: The passage is dedicated to the intent and contains the exact answer for the query.\n2=Highly relevant: The passage matches the intent and has some answer for the query, but the answer may be a bit unclear, or hidden amongst extraneous information.\n1=Related: The passage seems related to the query and intent but does not answer it.\n0=Irrelevant: The passage has nothing to do with the query or the intent.\nAssume that you are writing a report on the subject of the query.\n\nQuery: A person has typed "{query}" into a search engine. They were looking for "{intent}"\nConsider the following web page.\n-BEGIN WEB PAGE CONTENT-\n{doc}\n-END WEB PAGE CONTENT-\n\nInstructions:\nProduce a single relevance score in json format without providing any reasoning. (Example: {{"Relevance Score": 1}})\n\nYour answer:\n'
 
-    def _is_model_available(self):
+    def _is_model_available(self) -> bool:
         """
         Method to check for the availability of the desired Ollama model in the local environment
 
