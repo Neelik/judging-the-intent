@@ -26,10 +26,14 @@ if __name__ == "__main__":
     def triple_generator():
         for q_id, doc_ids in tqdm(qid_to_docids.items()):
             query = queries[q_id]
-            query_intents = ["todo: get intents here"]  # get from DL-MIA
-            for intent in query_intents:
+            query_intents = [("i1", "todo: get intents here")]  # get from DL-MIA
+            for intent_id, intent in query_intents:
                 for doc_id in doc_ids:
-                    yield query, intent, docs_store.get(doc_id).text
+                    yield (
+                        (q_id, query),
+                        (intent_id, intent),
+                        (doc_id, docs_store.get(doc_id).text),
+                    )
 
     annotator = OllamaTripleAnnotator("mistral", triple_generator())
     annotator.configure()

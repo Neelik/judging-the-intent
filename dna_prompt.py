@@ -11,14 +11,15 @@ class OllamaTripleAnnotator:
     """
     Wrapper class allowing for inference calls to Ollama models using the DNA prompt format
     :param model: Name of the Ollama model to be used in inference
-    :param triples: Iterable triples (query, intent, document)
-
-    :attribute judgements: Python list of dictionaries containing the model-provided relevance judgements
+    :param triples: Iterable triples ((query_id, query), (intent_id, intent), (document_id, document))
     """
 
-    def __init__(self, model: str, triples: Iterable[str, str, str]) -> None:
+    def __init__(
+        self,
+        model: str,
+        triples: Iterable[tuple[str, str], tuple[str, str], tuple[str, str]],
+    ) -> None:
         self.triples = triples
-        self.judgements = []
         self.model = model
 
     def configure(self):
@@ -58,7 +59,7 @@ class OllamaTripleAnnotator:
         Method to perform relevance judgment inference over the Ollama local API
 
         :param stream: Determines streaming behavior for Ollama api call - See https://github.com/ollama/ollama/blob/main/docs/api.md for details
-        :yield: Model response, status code, predicted relevance score
+        :yield: IDs, predicted relevance score, status code, model response
         """
         ollama_local_headers = {"Content-Type": "application/json"}
         # Check if the default ollama model is available locally, if not prompt user to call configure()
@@ -74,8 +75,8 @@ class OllamaTripleAnnotator:
             e.args = (arg0,) + args[1:]
             raise
 
-        for trip in self.triples:
-            self._build_prompt(*trip)
+        for (q_id, q), (i_id, i), (d_id, d) in self.triples:
+            self._build_prompt(q, i, d)
             data = {"prompt": self.prompt, "model": self.model, "stream": stream}
             json_data = json.dumps(data)
             response = requests.post(
@@ -85,6 +86,9 @@ class OllamaTripleAnnotator:
             )
 
             result = {
+                "query_id": q_id,
+                "intent_id": i_id,
+                "doc_id": d_id,
                 "status_code": response.status_code,
                 "model_response": json.loads(response.text),
             }
@@ -99,7 +103,7 @@ class OllamaTripleAnnotator:
             finally:
                 yield result
 
-    def _build_prompt(self, query, intent, doc):
+    def _build_prompt(self, query: str, intent: str, doc: str):
         """
         Internal class method to inject query, intent, and document values into the DNA prompt to be used in model inference
 
