@@ -24,7 +24,7 @@ def main():
             # use binary relevances for now
             gt[(q_id, i_id, doc_id)] = int(rel) > 0
 
-    annotations = defaultdict(int)
+    annotations = defaultdict(bool)
     print("reading annotations...")
     with open(args.ANNOTATION_FILE, encoding="utf-8", newline="") as fp:
         for q_id, i_id, doc_id, rel, _ in csv.reader(fp, delimiter="\t"):
