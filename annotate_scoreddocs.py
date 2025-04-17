@@ -1,4 +1,5 @@
 import csv
+from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from collections import defaultdict
 from pathlib import Path
 
@@ -7,7 +8,13 @@ from tqdm import tqdm
 
 from dna_prompt import OllamaTripleAnnotator
 
-if __name__ == "__main__":
+
+def main():
+    ap = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+    ap.add_argument("MODEL", help="Ollama model")
+    ap.add_argument("--out_file", default="out.tsv", help="Output file (.tsv)")
+    args = ap.parse_args()
+
     print("reading intents...")
     with open(
         Path.cwd() / "DL-MIA" / "data" / "intent.tsv", encoding="utf-8", newline=""
@@ -53,7 +60,27 @@ if __name__ == "__main__":
                     )
 
     print("annotating...")
-    annotator = OllamaTripleAnnotator("mistral", triple_generator())
+    annotator = OllamaTripleAnnotator(args.MODEL, triple_generator())
     annotator.configure()
-    for j in annotator.get_judgments():
-        print(j)
+
+    with open(args.out_file, "w", encoding="utf-8", newline="") as fp:
+        writer = csv.writer(fp, delimiter="\t")
+        for j in annotator.get_judgments():
+            if "error" in j:
+                print(
+                    f"error for query {j['query_id']}, intent {j['intent_id']}, document {j['doc_id']}: {j['error']}"
+                )
+            else:
+                writer.writerow(
+                    [
+                        j["query_id"],
+                        j["intent_id"],
+                        j["doc_id"],
+                        j["relevance_score"],
+                        args.MODEL,
+                    ]
+                )
+
+
+if __name__ == "__main__":
+    main()
