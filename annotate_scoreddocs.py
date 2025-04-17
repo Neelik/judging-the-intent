@@ -17,14 +17,16 @@ def main():
 
     print("reading intents...")
     with open(
-        Path.cwd() / "DL-MIA" / "data" / "intent.tsv", encoding="utf-8", newline=""
+        Path(__file__).parent / "DL-MIA" / "data" / "intent.tsv",
+        encoding="utf-8",
+        newline="",
     ) as fp:
         intents = {row[0]: row[1] for row in csv.reader(fp, delimiter="\t")}
 
     print("reading query-intent mappings...")
     q_id_to_i_d = defaultdict(set)
     with open(
-        Path.cwd() / "DL-MIA" / "data" / "qid_iid_qrel.txt",
+        Path(__file__).parent / "DL-MIA" / "data" / "qid_iid_qrel.txt",
         encoding="utf-8",
         newline="",
     ) as fp:
