@@ -83,6 +83,7 @@ def main():
                     ]
                 )
 
+    print(annotator.unload())
 
 if __name__ == "__main__":
     main()

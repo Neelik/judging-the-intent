@@ -137,3 +137,21 @@ class OllamaTripleAnnotator:
                 if self.model in names:
                     available = True
         return available
+
+    def unload(self):
+        """
+        Method to set keep-alive for the Ollama model to 0, removing it from memory. Useful when the class is being run
+        on a shared resource.
+
+        :return: boolean of if the request gave a 200
+        """
+        ollama_local_headers = {"Content-Type": "application/json"}
+        data = {"model": self.model, "keep_alive": 0}
+        json_data = json.dumps(data)
+        response = requests.post(
+            url=f"{OLLAMA_API}/generate",
+            data=json_data,
+            headers=ollama_local_headers,
+        )
+
+        return response.status_code == 200
