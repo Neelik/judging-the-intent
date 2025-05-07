@@ -43,10 +43,10 @@ def main():
         dataset = ir_datasets.load(ds_name)
         queries.update({q.query_id: q.text for q in dataset.queries_iter()})
         docs_store = dataset.docs_store()
-        for scoreddoc in tqdm(
-            dataset.scoreddocs_iter(), total=dataset.scoreddocs_count()
+        for qrel in tqdm(
+            dataset.qrels_iter(), total=dataset.qrels_count()
         ):
-            qid_to_docids[scoreddoc.query_id].append(scoreddoc.doc_id)
+            qid_to_docids[qrel.query_id].append(qrel.doc_id)
 
     def triple_generator():
         for q_id in tqdm(q_id_to_i_d):
