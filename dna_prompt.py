@@ -1,6 +1,7 @@
 import json
 from collections.abc import Iterable, Mapping
 from typing import Any
+from parsers import phi4
 
 import requests
 
@@ -95,9 +96,13 @@ class OllamaTripleAnnotator:
 
             # Handle the response
             try:
-                result["relevance_score"] = json.loads(
-                    result["model_response"]["response"]
-                )["Relevance Score"]
+                if self.model == "phi4":
+                    json_response = phi4.parse_response(response)
+                    result["relevance_score"] = json_response["Relevance Score"]
+                else:
+                    result["relevance_score"] = json.loads(
+                        result["model_response"]["response"]
+                    )["Relevance Score"]
             except Exception as ex:
                 result["error"] = repr(ex)
             finally:
