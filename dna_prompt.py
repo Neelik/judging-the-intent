@@ -97,7 +97,7 @@ class OllamaTripleAnnotator:
             # Handle the response
             try:
                 if self.model == "phi4":
-                    json_response = phi4.parse_response(response)
+                    json_response = phi4.parse_response(result["model_response"]["response"])
                     result["relevance_score"] = json_response["Relevance Score"]
                 else:
                     result["relevance_score"] = json.loads(
