@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Generator, Iterable, Mapping
 from typing import Any
 from parsers import phi4
 
@@ -12,16 +12,19 @@ class OllamaTripleAnnotator:
     """
     Wrapper class allowing for inference calls to Ollama models using the DNA prompt format
     :param model: Name of the Ollama model to be used in inference
+    :param include_intent: Flag that identifies whether to include search intent in the prompt
     :param triples: Iterable triples ((query_id, query), (intent_id, intent), (document_id, document))
     """
 
     def __init__(
         self,
         model: str,
-        triples: Iterable[tuple[str, str], tuple[str, str], tuple[str, str]],
+        include_intent: bool,
+        triples: Generator[tuple[str, str], tuple[str, str], tuple[str, str]],
     ) -> None:
         self.triples = triples
         self.model = model
+        self.include_intent = include_intent
 
     def configure(self) -> None:
         """
@@ -77,7 +80,10 @@ class OllamaTripleAnnotator:
             raise
 
         for (q_id, q), (i_id, i), (d_id, d) in self.triples:
-            self._build_prompt(q, i, d)
+            if self.include_intent:
+                self._build_prompt(q, i, d)
+            else:
+                self._build_prompt(q, "", d)
             data = {"prompt": self.prompt, "model": self.model, "stream": stream}
             json_data = json.dumps(data)
             response = requests.post(
@@ -117,7 +123,10 @@ class OllamaTripleAnnotator:
         :param doc: Document to be injected into DNA prompt
         :return: None
         """
-        self.prompt = f'You are a search quality rater evaluating the relevance of web pages.\nGiven a query, an intent description, and a text, you must provide a score on an integer scale of 0 to 3 with the following meanings:\n3=Perfectly relevant: The passage is dedicated to the intent and contains the exact answer for the query.\n2=Highly relevant: The passage matches the intent and has some answer for the query, but the answer may be a bit unclear, or hidden amongst extraneous information.\n1=Related: The passage seems related to the query and intent but does not answer it.\n0=Irrelevant: The passage has nothing to do with the query or the intent.\nAssume that you are writing a report on the subject of the query.\n\nQuery: A person has typed "{query}" into a search engine. They were looking for "{intent}"\nConsider the following web page.\n-BEGIN WEB PAGE CONTENT-\n{doc}\n-END WEB PAGE CONTENT-\n\nInstructions:\nProduce a single relevance score in json format without providing any reasoning. (Example: {{"Relevance Score": 1}})\n\nYour answer:\n'
+        if intent == "":
+            self.prompt = f'You are a search quality rater evaluating the relevance of web pages.\nGiven a query and a text, you must provide a score on an integer scale of 0 to 3 with the following meanings:\n3=Perfectly relevant: The passage is dedicated to the query and contains the exact answer.\n2=Highly relevant: The passage matches the query and has some answer, but the answer may be a bit unclear, or hidden amongst extraneous information.\n1=Related: The passage seems related to the query but does not answer it.\n0=Irrelevant: The passage has nothing to do with the query.\nAssume that you are writing a report on the subject of the query.\n\nQuery: A person has typed "{query}" into a search engine.\nConsider the following web page.\n-BEGIN WEB PAGE CONTENT-\n{doc}\n-END WEB PAGE CONTENT-\n\nInstructions:\nProduce a single relevance score in json format without providing any reasoning. (Example: {{"Relevance Score": 1}})\n\nYour answer:\n'
+        else:
+            self.prompt = f'You are a search quality rater evaluating the relevance of web pages.\nGiven a query, an intent description, and a text, you must provide a score on an integer scale of 0 to 3 with the following meanings:\n3=Perfectly relevant: The passage is dedicated to the intent and contains the exact answer for the query.\n2=Highly relevant: The passage matches the intent and has some answer for the query, but the answer may be a bit unclear, or hidden amongst extraneous information.\n1=Related: The passage seems related to the query and intent but does not answer it.\n0=Irrelevant: The passage has nothing to do with the query or the intent.\nAssume that you are writing a report on the subject of the query.\n\nQuery: A person has typed "{query}" into a search engine. They were looking for "{intent}"\nConsider the following web page.\n-BEGIN WEB PAGE CONTENT-\n{doc}\n-END WEB PAGE CONTENT-\n\nInstructions:\nProduce a single relevance score in json format without providing any reasoning. (Example: {{"Relevance Score": 1}})\n\nYour answer:\n'
 
     def _is_model_available(self) -> bool:
         """
