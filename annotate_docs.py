@@ -1,6 +1,5 @@
 import csv
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
-import pyterrier as pt
 from ir_datasets_subsample import register_subsamples
 from pathlib import Path
 import ir_datasets
@@ -67,10 +66,8 @@ def main():
                     )
 
         else:
-            dataset = pt.datasets.get_dataset(f"irds:{args.DATASET}")
-            docs_store = {doc["docno"]: doc["text"] for doc in
-                                         dataset.get_corpus_iter()}
-            # docs_store = dataset.docs_store()
+            dataset = ir_datasets.load(args.DATASET)
+            docs_store = dataset.docs_store()
             with open(
                     Path().cwd().joinpath("trec-web", "qrels", f"{args.DATASET.replace('/', '-')}-filtered-qrels.tsv"),
                     encoding="utf-8",
@@ -80,7 +77,7 @@ def main():
                     yield (
                         (row[0], q[row[0]]),
                         (row[1], i[row[1]]),
-                        (row[2], docs_store[row[2]]),
+                        (row[2], docs_store.get(row[2]).text),
                     )
 
     annotator = OllamaTripleAnnotator(args.MODEL, args.i, triple_generator(queries, intents))
