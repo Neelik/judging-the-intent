@@ -74,10 +74,16 @@ def main():
                     newline="",
             ) as infile:
                 for row in csv.reader(infile, delimiter="\t"):
+                    try:
+                        doc_text = docs_store.get(row[2]).text
+                    except KeyError:
+                        with open (Path(__file__).parent.joinpath(f"{args.DATASET.replace('/', '-')}-{args.MODEL}-docstore-errors.txt"), "a") as errorfile:
+                            errorfile.write(f"{row[0]}\t{row[1]}\t{row[2]}\t-3\tDocument Not in DocStore\n")
+                        continue
                     yield (
                         (row[0], q[row[0]]),
                         (row[1], i[row[1]]),
-                        (row[2], docs_store.get(row[2]).text),
+                        (row[2], doc_text),
                     )
 
     annotator = OllamaTripleAnnotator(args.MODEL, args.i, triple_generator(queries, intents))
