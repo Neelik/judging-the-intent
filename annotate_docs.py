@@ -35,14 +35,14 @@ def main():
     else:
         # Need to load the dataset from ir_datasets, or the subsample, and collect intents and queries
         with open(
-                Path().cwd().joinpath("trec-web", f"{args.DATASET.replace('/', '-')}-queries.tsv"),
+                Path(__file__).parent.joinpath("trec-web", f"{args.DATASET.replace('/', '-')}-queries.tsv"),
                 encoding="utf-8",
                 newline=""
         ) as fp:
             queries = {row[0]: row[1] for row in csv.reader(fp, delimiter="\t")}
 
         with open(
-                Path().cwd().joinpath("trec-web", f"{args.DATASET.replace('/', '-')}-qid-iid-intent.tsv"),
+                Path(__file__).parent.joinpath("trec-web", f"{args.DATASET.replace('/', '-')}-qid-iid-intent.tsv"),
                 encoding="utf-8",
                 newline="",
         ) as fp:
@@ -69,7 +69,7 @@ def main():
             dataset = ir_datasets.load(args.DATASET)
             docs_store = dataset.docs_store()
             with open(
-                    Path().cwd().joinpath("trec-web", "qrels", f"{args.DATASET.replace('/', '-')}-filtered-qrels.tsv"),
+                    Path(__file__).parent.joinpath("trec-web", "qrels", f"{args.DATASET.replace('/', '-')}-filtered-qrels.tsv"),
                     encoding="utf-8",
                     newline="",
             ) as infile:
