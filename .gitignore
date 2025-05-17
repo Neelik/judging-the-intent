@@ -177,3 +177,9 @@ cython_debug/
 .idea/
 
 out.tsv
+trec-web/*
+results/*
+.index/
+.logs/*
+ClueWeb/clueweb09/*
+ClueWeb/clueweb12/*

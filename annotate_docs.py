@@ -77,7 +77,7 @@ def main():
                     try:
                         doc_text = docs_store.get(row[2]).text
                     except KeyError:
-                        with open (Path(__file__).parent.joinpath(f"{args.DATASET.replace('/', '-')}-{args.MODEL}-docstore-errors.txt"), "a") as errorfile:
+                        with open (Path(__file__).parent.joinpath(".logs", f"{args.DATASET.replace('/', '-')}-{args.MODEL}-docstore-errors.txt"), "a") as errorfile:
                             errorfile.write(f"{row[0]}\t{row[1]}\t{row[2]}\t-3\tDocument Not in DocStore\n")
                         continue
                     yield (
