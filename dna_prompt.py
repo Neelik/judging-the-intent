@@ -6,8 +6,8 @@ import os
 
 import requests
 
-OLLAMA_PORT = os.environ.get("OLLAMA_HOST")
-OLLAMA_API = f"http://localhost:{OLLAMA_PORT}/api"
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST")
+OLLAMA_API = f"{OLLAMA_HOST}/api"
 
 
 class OllamaTripleAnnotator:
