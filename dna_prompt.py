@@ -2,10 +2,12 @@ import json
 from collections.abc import Generator, Iterable, Mapping
 from typing import Any
 from parsers import phi4
+import os
 
 import requests
 
-OLLAMA_API = "http://localhost:11434/api"
+OLLAMA_PORT = os.environ.get("OLLAMA_HOST")
+OLLAMA_API = f"http://localhost:{OLLAMA_PORT}/api"
 
 
 class OllamaTripleAnnotator:
