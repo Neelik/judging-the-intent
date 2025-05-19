@@ -30,7 +30,7 @@ def main():
                 gt_ml[(q_id, i_id, doc_id)] = round(float(rel))
     else:
         with open(
-            Path(__file__).parent.joinpath("trec-web", "qrels", f"{args.EVAL_DATASET.replace('/', '=')}-filtered-qrels.tsv"),
+            Path(__file__).parent.joinpath("trec-web", "qrels", f"{args.EVAL_DATASET.replace('/', '-')}-filtered-qrels.tsv"),
             encoding="utf-8",
             newline=""
         ) as fp:
