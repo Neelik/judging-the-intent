@@ -1,10 +1,11 @@
 import json
+import os
 from collections.abc import Generator, Iterable, Mapping
 from typing import Any
-from parsers import phi4
-import os
 
 import requests
+
+from parsers import phi4
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST")
 OLLAMA_API = f"{OLLAMA_HOST}/api"
@@ -81,21 +82,12 @@ class OllamaTripleAnnotator:
             e.args = (arg0,) + args[1:]
             raise
 
-        # Define the context length for the model
-        ctx_length = {
-            "mistral:7b-instruct": 32768,
-            "llama3.3": 131072,
-            "llama3.1": 131072,
-            "dolphin3": 131072,
-            "phi4": 16384,
-            "deepseek-r1:14b": 131072
-        }
         for (q_id, q), (i_id, i), (d_id, d) in self.triples:
             if self.include_intent:
                 self._build_prompt(q, i, d)
             else:
                 self._build_prompt(q, "", d)
-            data = {"prompt": self.prompt, "model": self.model, "stream": stream, "options": {"num_ctx": ctx_length[self.model]}}
+            data = {"prompt": self.prompt, "model": self.model, "stream": stream}
             json_data = json.dumps(data)
             response = requests.post(
                 url=f"{OLLAMA_API}/generate",
@@ -113,8 +105,10 @@ class OllamaTripleAnnotator:
 
             # Handle the response
             try:
-                if self.model == "phi4":
-                    json_response = phi4.parse_response(result["model_response"]["response"])
+                if self.model.startswith("phi4"):
+                    json_response = phi4.parse_response(
+                        result["model_response"]["response"]
+                    )
                     result["relevance_score"] = json_response["Relevance Score"]
                 else:
                     result["relevance_score"] = json.loads(
