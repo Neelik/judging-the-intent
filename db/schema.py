@@ -1,4 +1,4 @@
-from peewee import CharField, ForeignKeyField, Model
+from peewee import CharField, ForeignKeyField, IntegerField, Model
 
 from db import DATABASE
 
@@ -38,3 +38,5 @@ class LLM(BaseModel):
 class Annotation(BaseModel):
     triple = ForeignKeyField(Triple, backref="annotations")
     llm = ForeignKeyField(LLM, backref="annotations")
+    result = IntegerField(null=True)
+    error = CharField(null=True)
