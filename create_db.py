@@ -18,7 +18,10 @@ def main():
         "--datasets", nargs="+", required=True, help="List of dataset identifiers."
     )
     ap.add_argument(
-        "--db_file", default="data.db", help="SQLite database file to create."
+        "--db_file",
+        type=Path,
+        default=Path("data.db"),
+        help="SQLite database file to create.",
     )
     ap.add_argument(
         "--data_dir",
