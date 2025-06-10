@@ -1,6 +1,6 @@
-from peewee import CharField, ForeignKeyField, Model, SqliteDatabase
+from peewee import CharField, ForeignKeyField, Model
 
-DATABASE = SqliteDatabase(None)
+from db import DATABASE
 
 
 class BaseModel(Model):

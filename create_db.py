@@ -6,7 +6,8 @@ from pathlib import Path
 import ir_datasets
 from ir_datasets_subsample import register_subsamples
 
-from db.schema import DATABASE, LLM, Annotation, Document, Intent, Query, Triple
+from db import DATABASE
+from db.schema import LLM, Annotation, Document, Intent, Query, Triple
 
 LOGGER = logging.getLogger(__file__)
 
@@ -55,6 +56,7 @@ def main():
 
         dataset = ir_datasets.load(dataset_name)
         docs_store = dataset.docs_store()
+        qd_pairs = set()
         with open(
             args.data_dir
             / "qrels"
@@ -63,7 +65,11 @@ def main():
             newline="",
         ) as fp:
             for q_id, i_id, d_id, rel in csv.reader(fp, delimiter="\t"):
-                assert int(rel) > 0  # QRels should be filtered already
+                # QRels should be filtered already
+                assert int(rel) > 0
+
+                # keep track of unique query-doc pairs to add a null-intent triple for each one later
+                qd_pairs.add((q_id, d_id))
 
                 try:
                     d_text = docs_store.get(d_id).text
@@ -71,10 +77,13 @@ def main():
                     LOGGER.warning("%s not found in document store", d_id)
                     d_text = ""
 
-                Document.insert(
-                    d_id=d_id, text=d_text
-                ).on_conflict_ignore().execute()  # we expect duplicates here
+                # we expect duplicates here
+                Document.insert(d_id=d_id, text=d_text).on_conflict_ignore().execute()
+
                 Triple.create(query=q_id, intent=i_id, document=d_id)
+
+        for q_id, d_id in qd_pairs:
+            Triple.create(query=q_id, intent=None, document=d_id)
 
     for name in args.models:
         LLM.create(name=name)
