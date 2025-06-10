@@ -1,7 +1,6 @@
 from peewee import CharField, ForeignKeyField, Model, SqliteDatabase
 
 DATABASE = SqliteDatabase(None)
-DATABASE.init("data.db")
 
 
 class BaseModel(Model):
@@ -23,7 +22,6 @@ class Intent(BaseModel):
 
 class Document(BaseModel):
     d_id = CharField(primary_key=True)
-    corpus_name = CharField()
     text = CharField()
 
 

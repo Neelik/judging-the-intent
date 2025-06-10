@@ -1,0 +1,84 @@
+import csv
+import logging
+from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
+from pathlib import Path
+
+import ir_datasets
+from ir_datasets_subsample import register_subsamples
+
+from db.schema import DATABASE, LLM, Annotation, Document, Intent, Query, Triple
+
+LOGGER = logging.getLogger(__file__)
+
+
+def main():
+    ap = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+    ap.add_argument(
+        "--models", nargs="+", required=True, help="List of Ollama model identifiers."
+    )
+    ap.add_argument(
+        "--datasets", nargs="+", required=True, help="List of dataset identifiers."
+    )
+    ap.add_argument(
+        "--db_file", default="data.db", help="SQLite database file to create."
+    )
+    ap.add_argument(
+        "--data_dir",
+        type=Path,
+        default=Path.cwd(),
+        help="Where trec-web files are located.",
+    )
+    args = ap.parse_args()
+
+    register_subsamples()
+
+    DATABASE.init(args.db_file)
+    with DATABASE:
+        DATABASE.create_tables([Query, Intent, Document, Triple, LLM, Annotation])
+
+    for dataset_name in args.datasets:
+        with open(
+            args.data_dir / f"{dataset_name.replace('/', '-')}-queries.tsv",
+            encoding="utf-8",
+            newline="",
+        ) as fp:
+            for q_id, q_text in csv.reader(fp, delimiter="\t"):
+                Query.create(q_id=q_id, dataset_name=dataset_name, text=q_text)
+
+        with open(
+            args.data_dir / f"{dataset_name.replace('/', '-')}-qid-iid-intent.tsv",
+            encoding="utf-8",
+            newline="",
+        ) as fp:
+            for q_id, i_id, i_text in csv.reader(fp, delimiter="\t"):
+                Intent.create(i_id=i_id, query=q_id, text=i_text)
+
+        dataset = ir_datasets.load(dataset_name)
+        docs_store = dataset.docs_store()
+        with open(
+            args.data_dir
+            / "qrels"
+            / f"{dataset_name.replace('/', '-')}-filtered-qrels.tsv",
+            encoding="utf-8",
+            newline="",
+        ) as fp:
+            for q_id, i_id, d_id, rel in csv.reader(fp, delimiter="\t"):
+                assert int(rel) > 0  # QRels should be filtered already
+
+                try:
+                    d_text = docs_store.get(d_id).text
+                except KeyError:
+                    LOGGER.warning("%s not found in document store", d_id)
+                    d_text = ""
+
+                Document.insert(
+                    d_id=d_id, text=d_text
+                ).on_conflict_ignore().execute()  # we expect duplicates here
+                Triple.create(query=q_id, intent=i_id, document=d_id)
+
+    for name in args.models:
+        LLM.create(name=name)
+
+
+if __name__ == "__main__":
+    main()
