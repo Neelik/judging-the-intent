@@ -15,9 +15,6 @@ LOGGER = logging.getLogger(__file__)
 def main():
     ap = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     ap.add_argument(
-        "--models", nargs="+", required=True, help="List of Ollama model identifiers."
-    )
-    ap.add_argument(
         "--datasets", nargs="+", required=True, help="List of dataset identifiers."
     )
     ap.add_argument(
@@ -84,9 +81,6 @@ def main():
 
         for q_id, d_id in qd_pairs:
             Triple.create(query=q_id, intent=None, document=d_id)
-
-    for name in args.models:
-        LLM.create(name=name)
 
 
 if __name__ == "__main__":
