@@ -1,6 +1,6 @@
 from peewee import CharField, ForeignKeyField, IntegerField, Model, TimestampField
 
-from db import DATABASE
+from judging_the_intent.db import DATABASE
 
 
 class BaseModel(Model):

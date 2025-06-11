@@ -6,8 +6,15 @@ from pathlib import Path
 import ir_datasets
 from ir_datasets_subsample import register_subsamples
 
-from db import DATABASE
-from db.schema import Annotation, Config, Document, Intent, Query, Triple
+from judging_the_intent.db import DATABASE
+from judging_the_intent.db.schema import (
+    Annotation,
+    Config,
+    Document,
+    Intent,
+    Query,
+    Triple,
+)
 
 LOGGER = logging.getLogger(__file__)
 
