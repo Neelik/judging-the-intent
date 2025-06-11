@@ -31,12 +31,13 @@ class Triple(BaseModel):
     document = ForeignKeyField(Document, backref="triples")
 
 
-class LLM(BaseModel):
-    name = CharField()
+class Config(BaseModel):
+    model_name = CharField()
+    version = CharField()
 
 
 class Annotation(BaseModel):
     triple = ForeignKeyField(Triple, backref="annotations")
-    llm = ForeignKeyField(LLM, backref="annotations")
+    config = ForeignKeyField(Config, backref="annotations")
     result = IntegerField(null=True)
     error = CharField(null=True)

@@ -7,7 +7,7 @@ import ir_datasets
 from ir_datasets_subsample import register_subsamples
 
 from db import DATABASE
-from db.schema import LLM, Annotation, Document, Intent, Query, Triple
+from db.schema import Annotation, Config, Document, Intent, Query, Triple
 
 LOGGER = logging.getLogger(__file__)
 
@@ -31,13 +31,16 @@ def main():
     )
     args = ap.parse_args()
 
+    logging.basicConfig(level=logging.INFO)
     register_subsamples()
-
     DATABASE.init(args.db_file)
+
     with DATABASE:
-        DATABASE.create_tables([Query, Intent, Document, Triple, LLM, Annotation])
+        DATABASE.create_tables([Query, Intent, Document, Triple, Config, Annotation])
 
     for dataset_name in args.datasets:
+        LOGGER.info("processing %s", dataset_name)
+
         with open(
             args.data_dir / f"{dataset_name.replace('/', '-')}-queries.tsv",
             encoding="utf-8",
