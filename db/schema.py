@@ -1,4 +1,4 @@
-from peewee import CharField, ForeignKeyField, IntegerField, Model
+from peewee import CharField, ForeignKeyField, IntegerField, Model, TimestampField
 
 from db import DATABASE
 
@@ -41,3 +41,4 @@ class Annotation(BaseModel):
     config = ForeignKeyField(Config, backref="annotations")
     result = IntegerField(null=True)
     error = CharField(null=True)
+    timestamp = TimestampField()
