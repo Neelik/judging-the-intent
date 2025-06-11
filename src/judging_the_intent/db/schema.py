@@ -35,6 +35,9 @@ class Config(BaseModel):
     model_name = CharField()
     version = CharField()
 
+    class Meta:
+        indexes = ((("model_name", "version"), True),)
+
 
 class Annotation(BaseModel):
     triple = ForeignKeyField(Triple, backref="annotations")
@@ -42,3 +45,6 @@ class Annotation(BaseModel):
     result = IntegerField(null=True)
     error = CharField(null=True)
     timestamp = TimestampField()
+
+    class Meta:
+        indexes = ((("triple", "config"), True),)
