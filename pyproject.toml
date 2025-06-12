@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "judging-the-intent"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ir-datasets",
+    "ir_datasets_subsample @ git+https://github.com/webis-de/ecir25-corpus-subsampling.git#subdirectory=ir_datasets_subsample",
+    "tqdm",
+    "requests",
+    "peewee",
+]

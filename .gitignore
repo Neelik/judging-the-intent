@@ -183,3 +183,6 @@ results/*
 .logs/*
 ClueWeb/clueweb09/*
 ClueWeb/clueweb12/*
+data.db
+
+.DS_Store
