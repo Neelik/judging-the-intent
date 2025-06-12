@@ -19,5 +19,5 @@ uv run python -m judging_the_intent.create_db --datasets corpus-subsamples/cluew
 Afterwards, make sure that Ollama is running and the models are available and run `annotate`:
 
 ```bash
-uv run python -m judging_the_intent.annotate --models mistral:7b-instruct --db_file data.db
+uv run python -m judging_the_intent.annotate --models llama3.1:8b-instruct-q4_K_M mistral:7b-instruct-v0.3-q4_0 --db_file data.db
 ```
