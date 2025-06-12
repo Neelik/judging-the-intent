@@ -96,23 +96,30 @@ class Annotator:
                 "model": self._model,
                 "stream": False,
             }
-            api_response = requests.post(
-                url=f"{OLLAMA_API}/generate",
-                data=json.dumps(data),
-                headers={"Content-Type": "application/json"},
-            )
 
-            # TODO: use parsers, catch errors
-            response_text = json.loads(api_response.text)["response"]
-            result = json.loads(response_text)["Relevance Score"]
+            result, error = None, None
+            try:
+                api_response = requests.post(
+                    url=f"{OLLAMA_API}/generate",
+                    data=json.dumps(data),
+                    headers={"Content-Type": "application/json"},
+                )
 
-            # this will add or replace an annotation
-            Annotation.replace(
-                triple=item["id"],
-                config=config.id,
-                result=result,
-                timestamp=time.time(),
-            ).execute()
+                # TODO: use parsers
+                response_text = json.loads(api_response.text)["response"]
+                result = json.loads(response_text)["Relevance Score"]
+            except Exception as e:
+                LOGGER.error("error while annotating triple %s", item["id"])
+                error = repr(e)
+            finally:
+                # this will add or replace an annotation
+                Annotation.replace(
+                    triple=item["id"],
+                    config=config.id,
+                    result=result,
+                    error=error,
+                    timestamp=time.time(),
+                ).execute()
 
 
 def main():
