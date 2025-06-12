@@ -19,6 +19,7 @@ from judging_the_intent.db.schema import (
     Triple,
 )
 from judging_the_intent.util.dna_prompt import build_prompt
+from judging_the_intent.util.parsers import Parser, Phi4Parser
 
 LOGGER = logging.getLogger(__file__)
 OLLAMA_API = f"{os.environ.get('OLLAMA_HOST', 'http://localhost:11434')}/api"
@@ -30,8 +31,9 @@ class Annotator:
     :param model: Name of the Ollama model to be used in inference.
     """
 
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, parser: Parser) -> None:
         self._model = model
+        self._parser = parser
 
     def run(self) -> None:
         """Run the annotation.
@@ -103,10 +105,7 @@ class Annotator:
                     data=json.dumps(data),
                     headers={"Content-Type": "application/json"},
                 )
-
-                # TODO: use parsers
-                response_text = json.loads(api_response.text)["response"]
-                result = json.loads(response_text)["Relevance Score"]
+                result = self._parser(json.loads(api_response.text)["response"])
             except Exception as e:
                 LOGGER.error("error while annotating triple %s", item["id"])
                 error = repr(e)
@@ -136,9 +135,15 @@ def main():
     logging.basicConfig(level=logging.INFO)
     DATABASE.init(args.db_file)
 
-    for model_name in args.models:
-        LOGGER.info("processing %s", model_name)
-        Annotator(model_name).run()
+    # available parsers in order of preference
+    parsers = [Phi4Parser(), Parser()]
+
+    for model in args.models:
+        for parser in parsers:
+            if parser.matches(model):
+                LOGGER.info("processing %s using %s", model, parser.__class__.__name__)
+                Annotator(model, parser).run()
+                break
 
 
 if __name__ == "__main__":

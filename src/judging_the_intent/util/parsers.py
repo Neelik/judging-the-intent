@@ -1,8 +1,38 @@
-def parse_phi4(response):
-    # Expect to find "```json\n{\"Relevance Score\": 2}\n```" as the passed string, parse it down to the relevance score
-    # and rebuild the expected object
-    first_split = response.split("{")
-    second_split = first_split[1].split("}")
-    third_split = second_split[0].split(":")
-    proper_json = {"Relevance Score": int(third_split[1].strip())}
-    return proper_json
+import json
+import re
+
+
+class Parser:
+    """Extract the relevance score from an LLM output.
+
+    The base parser accepts all models.
+    """
+
+    def matches(self, model: str) -> bool:
+        """Whether this parser supports the model.
+
+        :param model: The model identifier.
+        :return: True if the parser accepts the model, False otherwise.
+        """
+        return True
+
+    def __call__(self, response_text: str) -> int:
+        """Parse the model response.
+
+        :param response_text: The model output.
+        :return: The relevance score.
+        """
+        return int(json.loads(response_text)["Relevance Score"])
+
+
+class Phi4Parser(Parser):
+    """Parser for phi4 models.
+
+    Expects to find a JSON snippet with the score anywhere within the response.
+    """
+
+    def matches(self, model: str) -> bool:
+        return model.startswith("phi4")
+
+    def __call__(self, response_text: str) -> int:
+        return int(re.search(r'{"Relevance Score": (\d)}', response_text).group(1))
