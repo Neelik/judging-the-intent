@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import time
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from pathlib import Path
 
@@ -118,7 +117,6 @@ class Annotator:
                     config=config.id,
                     result=result,
                     error=error,
-                    timestamp=time.time(),
                 ).execute()
 
 

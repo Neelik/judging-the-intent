@@ -1,3 +1,5 @@
+import time
+
 from peewee import CharField, ForeignKeyField, IntegerField, Model, TimestampField
 
 from judging_the_intent.db import DATABASE
@@ -44,7 +46,7 @@ class Annotation(BaseModel):
     config = ForeignKeyField(Config, backref="annotations")
     result = IntegerField(null=True)
     error = CharField(null=True)
-    timestamp = TimestampField()
+    timestamp = TimestampField(default=time.time)
 
     class Meta:
         indexes = ((("triple", "config"), True),)
