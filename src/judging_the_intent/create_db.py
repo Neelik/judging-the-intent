@@ -76,7 +76,11 @@ def main():
         ) as fp:
             for q_id, i_id, d_id, rel in csv.reader(fp, delimiter="\t"):
                 # QRels should be filtered already
-                assert int(rel) >= 0
+                try:
+                    assert int(rel) >= 0
+                except AssertionError:
+                    LOGGER.warning("%s has invalid relevance score of %s", d_id, rel)
+                    continue
 
                 # keep track of unique query-doc pairs to add a null-intent triple for each one later
                 qd_pairs.add((q_id, d_id))
