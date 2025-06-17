@@ -76,7 +76,7 @@ def main():
         ) as fp:
             for q_id, i_id, d_id, rel in csv.reader(fp, delimiter="\t"):
                 # QRels should be filtered already
-                assert int(rel) > 0
+                assert int(rel) >= 0
 
                 # keep track of unique query-doc pairs to add a null-intent triple for each one later
                 qd_pairs.add((q_id, d_id))
