@@ -1,6 +1,13 @@
 import time
 
-from peewee import CharField, ForeignKeyField, IntegerField, Model, TimestampField
+from peewee import (
+    CharField,
+    ForeignKeyField,
+    IntegerField,
+    Model,
+    TextField,
+    TimestampField,
+)
 
 from judging_the_intent.db import DATABASE
 
@@ -13,18 +20,18 @@ class BaseModel(Model):
 class Query(BaseModel):
     q_id = CharField(primary_key=True)
     dataset_name = CharField()
-    text = CharField()
+    text = TextField()
 
 
 class Intent(BaseModel):
     i_id = CharField()
     query = ForeignKeyField(Query, backref="intents")
-    text = CharField()
+    text = TextField()
 
 
 class Document(BaseModel):
     d_id = CharField(primary_key=True)
-    text = CharField()
+    text = TextField()
 
 
 class Triple(BaseModel):
@@ -45,7 +52,7 @@ class Annotation(BaseModel):
     triple = ForeignKeyField(Triple, backref="annotations")
     config = ForeignKeyField(Config, backref="annotations")
     result = IntegerField(null=True)
-    error = CharField(null=True)
+    error = TextField(null=True)
     timestamp = TimestampField(default=time.time)
 
     class Meta:
