@@ -13,5 +13,5 @@ dependencies = [
     "tqdm",
     "requests",
     "peewee",
-    "psycopg2",
+    "psycopg2-binary",
 ]
