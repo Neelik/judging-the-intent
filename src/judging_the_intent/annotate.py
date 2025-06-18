@@ -108,12 +108,15 @@ class Annotator:
                 LOGGER.error("error while annotating triple %s", item["id"])
                 error = repr(e)
             finally:
-                # this will add or replace an annotation
-                Annotation.replace(
+                # this will add or update an annotation
+                Annotation.insert(
                     triple=item["id"],
                     config=config.id,
                     result=result,
                     error=error,
+                ).on_conflict(
+                    preserve=[Annotation.triple, Annotation.config],
+                    update={Annotation.result: result, Annotation.error: error},
                 ).execute()
 
 
