@@ -2,14 +2,12 @@ import json
 import logging
 import os
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
-from pathlib import Path
 
 import requests
 from peewee import JOIN
 from tqdm import tqdm
 
 from judging_the_intent import __version__
-from judging_the_intent.db import DATABASE
 from judging_the_intent.db.schema import (
     Annotation,
     Config,
@@ -124,16 +122,9 @@ def main():
     ap.add_argument(
         "--models", required=True, nargs="+", help="Ollama model identifiers."
     )
-    ap.add_argument(
-        "--db_file",
-        type=Path,
-        default=Path("data.db"),
-        help="SQLite database file to use.",
-    )
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    DATABASE.init(args.db_file)
 
     # available parsers in order of preference
     parsers = [Phi4Parser(), Parser()]
