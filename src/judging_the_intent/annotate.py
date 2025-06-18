@@ -115,6 +115,7 @@ class Annotator:
                     result=result,
                     error=error,
                 ).on_conflict(
+                    conflict_target=[Annotation.triple, Annotation.config],
                     preserve=[Annotation.triple, Annotation.config],
                     update={Annotation.result: result, Annotation.error: error},
                 ).execute()
