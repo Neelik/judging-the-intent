@@ -2,14 +2,12 @@ import json
 import logging
 import os
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
-from pathlib import Path
 
 import requests
 from peewee import JOIN
 from tqdm import tqdm
 
 from judging_the_intent import __version__
-from judging_the_intent.db import DATABASE
 from judging_the_intent.db.schema import (
     Annotation,
     Config,
@@ -110,12 +108,16 @@ class Annotator:
                 LOGGER.error("error while annotating triple %s", item["id"])
                 error = repr(e)
             finally:
-                # this will add or replace an annotation
-                Annotation.replace(
+                # this will add or update an annotation
+                Annotation.insert(
                     triple=item["id"],
                     config=config.id,
                     result=result,
                     error=error,
+                ).on_conflict(
+                    conflict_target=[Annotation.triple, Annotation.config],
+                    preserve=[Annotation.triple, Annotation.config],
+                    update={Annotation.result: result, Annotation.error: error},
                 ).execute()
 
 
@@ -124,16 +126,9 @@ def main():
     ap.add_argument(
         "--models", required=True, nargs="+", help="Ollama model identifiers."
     )
-    ap.add_argument(
-        "--db_file",
-        type=Path,
-        default=Path("data.db"),
-        help="SQLite database file to use.",
-    )
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    DATABASE.init(args.db_file)
 
     # available parsers in order of preference
     parsers = [Phi4Parser(), Parser()]

@@ -25,12 +25,6 @@ def main():
         "--datasets", nargs="+", required=True, help="List of dataset identifiers."
     )
     ap.add_argument(
-        "--db_file",
-        type=Path,
-        default=Path("data.db"),
-        help="SQLite database file to create.",
-    )
-    ap.add_argument(
         "--data_dir",
         type=Path,
         default=Path.cwd(),
@@ -40,7 +34,6 @@ def main():
 
     logging.basicConfig(level=logging.INFO)
     register_subsamples()
-    DATABASE.init(args.db_file)
 
     with DATABASE:
         DATABASE.create_tables([Query, Intent, Document, Triple, Config, Annotation])
