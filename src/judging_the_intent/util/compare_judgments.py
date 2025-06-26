@@ -58,8 +58,6 @@ class Evaluator:
 
         # Step 2 - Retrieve all Annotation entries for a given Model, and filter those Annotations by Dataset
         queries_subquery = Query.select().where(Query.dataset_name == self._dataset)
-        # triples_subquery_with_intent = Triple.select().where(Triple.query.in_(queries_subquery), Triple.intent.is_null(False))
-        # triples_subquery_without_intent = Triple.select().where(Triple.query.in_(queries_subquery), Triple.intent.is_null())
         triples_subquery = Triple.select().where(Triple.query.in_(queries_subquery))
 
         all_annotations_cte = (
@@ -67,48 +65,39 @@ class Evaluator:
                 Annotation.triple,
                 Annotation.config,
                 Annotation.result,
-                Annotation.error,
-                Annotation.timestamp,
                 Triple.query.alias("query_id"),
                 Triple.intent.alias("intent_id"),
                 Triple.document.alias("doc_id")
             )
-            .where(Config.model_name == self._model)
+            .join(Config)
+            .join(Triple)
+            .where(Config.id == config.id)
             .where(Annotation.triple.in_(triples_subquery))
-            .join(Triple, on=(Annotation.triple == Triple.id))
             .cte("all_annotations")
         )
 
         model_annotations_without_intent = (
             all_annotations_cte.select_from(
-                Annotation.triple,
-                Annotation.config,
-                Annotation.result,
-                Annotation.error,
-                Annotation.timestamp,
-                Triple.query.alias("query_id"),
-                Triple.intent.alias("intent_id"),
-                Triple.document.alias("doc_id")
+                all_annotations_cte.triple,
+                all_annotations_cte.config,
+                all_annotations_cte.result,
+                all_annotations_cte.query_id,
+                all_annotations_cte.intent_id,
+                all_annotations_cte.doc_id,
             )
-            .where(Config.model_name == self._model)
-            .where(Annotation.triple.in_(Triple.intent.is_null()))
-            .join(Triple, on=(Annotation.triple == Triple.id))
+            .where(all_annotations_cte.triple.in_(Triple.intent.is_null()))
         )
 
         model_annotations_with_intent = (
             all_annotations_cte.select_from(
-                Annotation.triple,
-                Annotation.config,
-                Annotation.result,
-                Annotation.error,
-                Annotation.timestamp,
-                Triple.query.alias("query_id"),
-                Triple.intent.alias("intent_id"),
-                Triple.document.alias("doc_id")
+                all_annotations_cte.triple,
+                all_annotations_cte.config,
+                all_annotations_cte.result,
+                all_annotations_cte.query_id,
+                all_annotations_cte.intent_id,
+                all_annotations_cte.doc_id,
             )
-            .where(Config.model_name == self._model)
-            .where(Annotation.triple.in_(Triple.intent.is_null(False)))
-            .join(Triple, on=(Annotation.triple == Triple.id))
+            .where(all_annotations_cte.triple.in_(Triple.intent.is_null(False)))
         )
         with_intent = pd.DataFrame(model_annotations_with_intent.dicts())
         without_intent = pd.DataFrame(model_annotations_without_intent.dicts())
