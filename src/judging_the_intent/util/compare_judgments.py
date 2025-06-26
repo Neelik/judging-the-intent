@@ -134,9 +134,9 @@ class Evaluator:
             get_human_annotations, args=(human_df,), axis=1)
 
         with_intent_report = classification_report(combined_with_intent["rel"].values,
-                                                   combined_with_intent["llm_annotation"].values, labels=[0, 1, 2, 3])
+                                                   combined_with_intent["result"].values, labels=[0, 1, 2, 3])
         without_intent_report = classification_report(combined_without_intent["rel"].values,
-                                                      combined_without_intent["llm_annotation"].values,
+                                                      combined_without_intent["result"].values,
                                                       labels=[0, 1, 2, 3])
 
         # Create the results directory if it doesn't exist already
