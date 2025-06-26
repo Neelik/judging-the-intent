@@ -94,7 +94,7 @@ class Evaluator:
                 Annotation,
                 Triple.query.alias("query_id"),
                 Triple.intent.alias("intent_id"),
-                Triple.document.alias("query_id"),
+                Triple.document.alias("doc_id"),
             )
             .join(Config, on=(Annotation.config == config.id))
             .join_from(Annotation, dataset_triples_with_intent, on=(Annotation.triple == dataset_triples_with_intent.c.id))
@@ -108,7 +108,7 @@ class Evaluator:
                 Annotation,
                 Triple.query.alias("query_id"),
                 Triple.intent.alias("intent_id"),
-                Triple.document.alias("query_id"),
+                Triple.document.alias("doc_id"),
             )
             .join(Config, on=(Annotation.config == config.id))
             .join_from(Annotation, dataset_triples_without_intent,
