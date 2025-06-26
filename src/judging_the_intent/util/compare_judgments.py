@@ -5,6 +5,7 @@ import pandas as pd
 from sklearn.metrics import classification_report
 
 from judging_the_intent import __version__
+from judging_the_intent.db import DATABASE
 from judging_the_intent.db.schema import (
     Annotation,
     Config,
@@ -57,94 +58,102 @@ class Evaluator:
         LOGGER.info(f"Loaded {human_df.shape[0]} human judgments.")
 
         # Step 2 - Retrieve all Annotation entries for a given Model, and filter those Annotations by Dataset
-        # queries_subquery = Query.select().where(Query.dataset_name == self._dataset)
-        # triples_subquery = Triple.select().where(Triple.query.in_(queries_subquery))
 
-        with_intent_cte = (
-            Annotation.select(Annotation, Config, Triple)
-            .join(Config, on=(Annotation.config == config.id))
-            .join(Triple, on=(Annotation.triple.in_(Triple.intent.is_null(False))))
-            .cte("with_intent")
+        # Get all Query objects for the current dataset
+        dataset_queries = (
+            Query.select()
+            .where(Query.dataset_name == self._dataset)
+            .alias("dataset_queries")
         )
+        cur = DATABASE.cursor()
+        LOGGER.info(f"SQL for SELECT on Query: {cur.mogrify(*dataset_queries.sql())}")
 
-        without_intent_cte = (
-            Annotation.select(
-                Annotation,
-                Config,
-                Triple.query.alias("query_id"),
-                Triple.intent.alias("intent_id"),
-                Triple.document.alias("doc_id"),
-            )
-            .join(Config, on=(Annotation.config == config.id))
-            .join(Triple, on=(Annotation.triple.in_(Triple.intent.is_null(False))))
-            .cte("without_intent")
+        # Get all Triple objects that have ForeignKey relationships to the dataset Query objects, that have Intents
+        dataset_triples_with_intent = (
+            Triple.select()
+            .where(Triple.intent.is_null(False))
+            .join(dataset_queries, on=(Triple.query == dataset_queries.c.q_id))
+            .join_from(Triple, Query)
         )
+        cur = DATABASE.cursor()
+        LOGGER.info(f"SQL for SELECT on Triple (with Intent): {cur.mogrify(*dataset_triples_with_intent.sql())}")
+
+        # Get all Triple objects that have ForeignKey relationships to the dataset Query objects, that do not have Intents
+        dataset_triples_without_intent = (
+            Triple.select()
+            .where(Triple.intent.is_null())
+            .join(dataset_queries, on=(Triple.query == dataset_queries.c.q_id))
+            .join_from(Triple, Query)
+        )
+        cur = DATABASE.cursor()
+        LOGGER.info(f"SQL for SELECT on Triple (no intent): {cur.mogrify(*dataset_triples_without_intent.sql())}")
+
+        # Collect the related Annotation objects for the Triple entries, with and without intent
+        model_annotations_with_intent = (
+            Annotation.select()
+            .join(Config, on=(Annotation.config == config.id))
+            .join_from(Annotation, dataset_triples_with_intent, on=(Annotation.triple == dataset_triples_with_intent.c.id))
+            .join_from(Annotation, Triple)
+        )
+        cur = DATABASE.cursor()
+        LOGGER.info(f"SQL for SELECT on Annotation: {cur.mogrify(*model_annotations_with_intent.sql())}")
 
         model_annotations_without_intent = (
-            without_intent_cte.select_from(
-                without_intent_cte.c.triple,
-                without_intent_cte.c.config,
-                without_intent_cte.c.result,
-                without_intent_cte.c.query_id,
-                without_intent_cte.c.intent_id,
-                without_intent_cte.c.doc_id,
-                Query.dataset_name.alias("dataset"),
-            )
-            .join(Query, on=((without_intent_cte.c.query_id == Query.id) & Query.dataset_name == self._dataset))
+            Annotation.select()
+            .join(Config, on=(Annotation.config == config.id))
+            .join_from(Annotation, dataset_triples_without_intent,
+                       on=(Annotation.triple == dataset_triples_without_intent.c.id))
+            .join_from(Annotation, Triple)
         )
+        cur = DATABASE.cursor()
+        LOGGER.info(f"SQL for SELECT on Annotation (no intent): {cur.mogrify(*model_annotations_without_intent.sql())}")
 
-        model_annotations_with_intent = (
-            with_intent_cte.select_from(
-                with_intent_cte.c.triple,
-                with_intent_cte.c.config,
-                with_intent_cte.c.result,
-                with_intent_cte.c.query_id,
-                with_intent_cte.c.intent_id,
-                with_intent_cte.c.doc_id,
-                Query.dataset_name.alias("dataset"),
-            )
-            .join(Query, on=((with_intent_cte.c.query_id == Query.id) & Query.dataset_name == self._dataset))
-        )
-
-        # all_annotations_cte = (
+        # with_intent_cte = (
+        #     Annotation.select(Annotation, Config, Triple)
+        #     .join(Config, on=(Annotation.config == config.id))
+        #     .join(Triple, on=(Annotation.triple.in_(Triple.intent.is_null(False))))
+        #     .cte("with_intent")
+        # )
+        #
+        # without_intent_cte = (
         #     Annotation.select(
-        #         Annotation.triple,
-        #         Annotation.config,
-        #         Annotation.result,
+        #         Annotation,
+        #         Config,
         #         Triple.query.alias("query_id"),
         #         Triple.intent.alias("intent_id"),
-        #         Triple.document.alias("doc_id")
+        #         Triple.document.alias("doc_id"),
         #     )
         #     .join(Config, on=(Annotation.config == config.id))
-        #     .join(Triple)
-        #     .where(Config.id == config.id)
-        #     .where(Annotation.triple.in_(triples_subquery))
-        #     .cte("all_annotations")
+        #     .join(Triple, on=(Annotation.triple.in_(Triple.intent.is_null(False))))
+        #     .cte("without_intent")
         # )
-
+        #
         # model_annotations_without_intent = (
-        #     all_annotations_cte.select_from(
-        #         all_annotations_cte.triple,
-        #         all_annotations_cte.config,
-        #         all_annotations_cte.result,
-        #         all_annotations_cte.query_id,
-        #         all_annotations_cte.intent_id,
-        #         all_annotations_cte.doc_id,
+        #     without_intent_cte.select_from(
+        #         without_intent_cte.c.triple,
+        #         without_intent_cte.c.config,
+        #         without_intent_cte.c.result,
+        #         without_intent_cte.c.query_id,
+        #         without_intent_cte.c.intent_id,
+        #         without_intent_cte.c.doc_id,
+        #         Query.dataset_name.alias("dataset"),
         #     )
-        #     .where(all_annotations_cte.triple.in_(Triple.intent.is_null()))
+        #     .join(Query, on=((without_intent_cte.c.query_id == Query.id) & Query.dataset_name == self._dataset))
         # )
         #
         # model_annotations_with_intent = (
-        #     all_annotations_cte.select_from(
-        #         all_annotations_cte.triple,
-        #         all_annotations_cte.config,
-        #         all_annotations_cte.result,
-        #         all_annotations_cte.query_id,
-        #         all_annotations_cte.intent_id,
-        #         all_annotations_cte.doc_id,
+        #     with_intent_cte.select_from(
+        #         with_intent_cte.c.triple,
+        #         with_intent_cte.c.config,
+        #         with_intent_cte.c.result,
+        #         with_intent_cte.c.query_id,
+        #         with_intent_cte.c.intent_id,
+        #         with_intent_cte.c.doc_id,
+        #         Query.dataset_name.alias("dataset"),
         #     )
-        #     .where(all_annotations_cte.triple.in_(Triple.intent.is_null(False)))
+        #     .join(Query, on=((with_intent_cte.c.query_id == Query.id) & Query.dataset_name == self._dataset))
         # )
+
         with_intent = pd.DataFrame(model_annotations_with_intent.dicts())
         without_intent = pd.DataFrame(model_annotations_without_intent.dicts())
         LOGGER.info(f"Loaded {human_df.shape[0]} LLM judgments.")
