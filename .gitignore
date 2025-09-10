@@ -176,6 +176,7 @@ cython_debug/
 # PyCharm
 .idea/
 
+src/judging_the_intent/util/*.sh
 out.tsv
 trec-web/*
 results/*
@@ -183,6 +184,7 @@ results/*
 .logs/*
 ClueWeb/clueweb09/*
 ClueWeb/clueweb12/*
-data.db
+*.db
+*.sql
 
 .DS_Store
