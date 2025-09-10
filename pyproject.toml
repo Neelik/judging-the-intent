@@ -16,4 +16,10 @@ dependencies = [
     "psycopg2-binary",
     "pandas>=2.3.0",
     "scikit-learn>=1.7.0",
+    "python-terrier>=0.13.0",
+]
+
+[dependency-groups]
+dev = [
+    "matplotlib>=3.10.6",
 ]
