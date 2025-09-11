@@ -18,6 +18,12 @@ The scripts expect the following environment variables to be set:
 - `POSTGRES_HOST`
 - `POSTGRES_PORT`
 - `OLLAMA_HOST`
+- `OLLAMA_CONTEXT_LENGTH`
+- `HUGGINGFACE_ACCESS_TOKEN`
+
+*NOTE* `OLLAMA_CONTEXT_LENGTH` defaults to a value of [4096](https://github.com/ollama/ollama/blob/main/envconfig/config.go) 
+if not defined. The `HUGGINGFACE_ACCESS_TOKEN` is a token required to access gated repos on HuggingFace. This is 
+configured on your [HuggingFace Profile](https://huggingface.co/settings/tokens).
 
 First, run `create_db` in order to initialize the database with queries, intents, and documents. For example:
 

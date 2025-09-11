@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
+from transformers import AutoTokenizer
 
 import requests
 from peewee import JOIN
@@ -17,10 +18,12 @@ from judging_the_intent.db.schema import (
     Triple,
 )
 from judging_the_intent.util.dna_prompt import build_prompt
+from judging_the_intent.util.tokenizers import tokenizer_lookup
 from judging_the_intent.util.parsers import Parser, Phi4Parser
 
 LOGGER = logging.getLogger(__file__)
 OLLAMA_API = f"{os.environ.get('OLLAMA_HOST', 'http://localhost:11434')}/api"
+HF_ACCESS_TOKEN = os.environ.get("HUGGINGFACE_ACCESS_TOKEN")
 
 
 class Annotator:
@@ -96,6 +99,15 @@ class Annotator:
                 "stream": False,
             }
 
+            # Before passing to the API, check whether the built prompt will be truncated based on the defined context window
+            context_length = os.environ.get("OLLAMA_CONTEXT_LENGTH", 4096)
+            model_id = tokenizer_lookup(self._model)
+            tokenizer = AutoTokenizer.from_pretrained(model_id, token=HF_ACCESS_TOKEN)
+            tokenized_prompt = tokenizer.encode(data["prompt"])
+            prompt_length = len(tokenized_prompt)
+            if prompt_length > context_length:
+                LOGGER.warning(f"Triple {item['id']} exceeded context length {context_length}.")
+
             result, error = None, None
             try:
                 api_response = requests.post(
@@ -114,6 +126,7 @@ class Annotator:
                     config=config.id,
                     result=result,
                     error=error,
+                    truncated=True if prompt_length >= context_length else False,
                 ).on_conflict(
                     conflict_target=[Annotation.triple, Annotation.config],
                     preserve=[Annotation.triple, Annotation.config],

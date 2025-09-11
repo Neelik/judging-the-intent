@@ -1,6 +1,7 @@
 import time
 
 from peewee import (
+    BooleanField,
     CharField,
     ForeignKeyField,
     IntegerField,
@@ -54,6 +55,7 @@ class Annotation(BaseModel):
     result = IntegerField(null=True)
     error = TextField(null=True)
     timestamp = TimestampField(default=time.time)
+    truncated = BooleanField(default=False)
 
     class Meta:
         indexes = ((("triple", "config"), True),)
