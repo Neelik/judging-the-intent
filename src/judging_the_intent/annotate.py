@@ -100,7 +100,7 @@ class Annotator:
             }
 
             # Before passing to the API, check whether the built prompt will be truncated based on the defined context window
-            context_length = os.environ.get("OLLAMA_CONTEXT_LENGTH", 4096)
+            context_length = int(os.environ.get("OLLAMA_CONTEXT_LENGTH", 4096))
             model_id = tokenizer_lookup(self._model)
             tokenizer = AutoTokenizer.from_pretrained(model_id, token=HF_ACCESS_TOKEN)
             tokenized_prompt = tokenizer.encode(data["prompt"])
