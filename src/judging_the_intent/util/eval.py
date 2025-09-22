@@ -67,6 +67,7 @@ class Evaluator:
                 Triple.intent.alias("intent_id"),
                 Triple.document.alias("doc_id"),
             )
+            .where(Annotation.result.in_([0, 1, 2, 3]))
             .join(Config, on=(Annotation.config == config.id))
             .join_from(Annotation, dataset_triples_with_intent,
                        on=(Annotation.triple == dataset_triples_with_intent.c.id))
@@ -80,6 +81,7 @@ class Evaluator:
                 Triple.intent.alias("intent_id"),
                 Triple.document.alias("doc_id"),
             )
+            .where(Annotation.result.in_([0, 1, 2, 3]))
             .join(Config, on=(Annotation.config == config.id))
             .join_from(Annotation, dataset_triples_without_intent,
                        on=(Annotation.triple == dataset_triples_without_intent.c.id))
