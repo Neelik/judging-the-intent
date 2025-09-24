@@ -126,18 +126,31 @@ class JudgmentEvaluator(Evaluator):
                                                       combined_without_intent["result"].values,
                                                       labels=[0, 1, 2, 3])
 
+        # Collapse positive relevance into a single value, making it a binary evaluation
+        combined_with_intent["bin_rel"] = combined_with_intent.apply(
+            lambda x: int(x["rel"] >= 1), axis=1)
+        combined_with_intent["bin_result"] = combined_with_intent.apply(
+            lambda x: int(x["result"] >= 1), axis=1)
+        combined_without_intent["bin_rel"] = combined_without_intent.apply(
+            lambda x: int(x["rel"] >= 1), axis=1)
+        combined_without_intent["bin_result"] = combined_without_intent.apply(
+            lambda x: int(x["result"] >= 1), axis=1)
+
+        # Binary classification accuracy
+        with_intent_report_bin = classification_report(combined_with_intent["bin_rel"].values,
+                                                   combined_with_intent["bin_result"].values, labels=[0, 1])
+        without_intent_report_bin = classification_report(combined_without_intent["bin_rel"].values,
+                                                      combined_without_intent["bin_result"].values,
+                                                      labels=[0, 1])
+
         # Accuracy for Agreement Assessment
         agree_i = accuracy_for_agreement(combined_with_intent["rel"].values, combined_with_intent["result"].values)
         agree_no_i = accuracy_for_agreement(combined_without_intent["rel"].values, combined_without_intent["result"].values)
 
-        # Kendall's Tau
-        ktau_i = kendalltau(combined_with_intent["rel"].values, combined_with_intent["result"].values)
-        ktau_no_i = kendalltau(combined_without_intent["rel"].values, combined_without_intent["result"].values)
-
-        # KS Test
-        ks_i = kstest(combined_with_intent["rel"].values, combined_with_intent["result"].values, alternative="greater")
-        ks_no_i = kstest(combined_without_intent["rel"].values, combined_without_intent["result"].values,
-                         alternative="greater")
+        # Binary Accuracy for Agreement Assessment
+        bin_agree_i = accuracy_for_agreement(combined_with_intent["bin_rel"].values, combined_with_intent["bin_result"].values)
+        bin_agree_no_i = accuracy_for_agreement(combined_without_intent["bin_rel"].values,
+                                            combined_without_intent["bin_result"].values)
 
         # Cohen's Kappa
         cohen_i = cohen_kappa_score(combined_with_intent["rel"].values, combined_with_intent["result"].values)
@@ -156,14 +169,10 @@ class JudgmentEvaluator(Evaluator):
             result_file.write(with_intent_report)
             result_file.write("\n\nCLASSIFICATION ACCURACY WITHOUT INTENT\n\n")
             result_file.write(without_intent_report)
-            result_file.write("\n\nKENDALL'S TAU WITH INTENT\n\n")
-            result_file.write(f"Statistic:\t{ktau_i.statistic}\nP-Value:\t{ktau_i.pvalue}")
-            result_file.write("\n\nKENDALL's TAU WITHOUT INTENT\n\n")
-            result_file.write(f"Statistic:\t{ktau_no_i.statistic}\nP-Value:\t{ktau_no_i.pvalue}")
-            result_file.write("\n\nKOLMOGOROV-SMIRNOV TEST WITH INTENT\n\n")
-            result_file.write(f"Statistic:\t{ks_i.statistic}\nP-Value:\t{ks_i.pvalue}")
-            result_file.write("\n\nKOLMOGOROV-SMIRNOV TEST WITHOUT INTENT\n\n")
-            result_file.write(f"Statistic:\t{ks_no_i.statistic}\nP-Value:\t{ks_no_i.pvalue}")
+            result_file.write("BINARY CLASSIFICATION ACCURACY WITH INTENT\n\n")
+            result_file.write(with_intent_report_bin)
+            result_file.write("\n\nBINARY CLASSIFICATION ACCURACY WITHOUT INTENT\n\n")
+            result_file.write(without_intent_report_bin)
             result_file.write("\n\nCOHEN'S KAPPA WITH INTENT\n\n")
             result_file.write(f"Kappa:\t{cohen_i}")
             result_file.write("\n\nCOHEN'S KAPPA WITHOUT INTENT\n\n")
@@ -172,6 +181,10 @@ class JudgmentEvaluator(Evaluator):
             result_file.write(f"Accuracy:\t{agree_i}")
             result_file.write("\n\nACCURACY FOR AGREEMENT WITHOUT INTENT\n\n")
             result_file.write(f"Accuracy:\t{agree_no_i}")
+            result_file.write(f"BINARY ACCURACY FOR AGREEMENT WITH INTENT\n\n")
+            result_file.write(f"Accuracy:\t{bin_agree_i}")
+            result_file.write(f"BINARY ACCURACY FOR AGREEMENT WITHOUT INTENT\n\n")
+            result_file.write(f"Accuracy:\t{bin_agree_no_i}")
 
 
 def main():
