@@ -53,9 +53,36 @@ def build_combined_dataframe(human_df, with_intent, without_intent):
     combined_without_intent["intent_id"] = combined_without_intent["intent_id"].fillna('')
     human_df[["query_id", "intent_id", "rel"]] = human_df[["query_id", "intent_id", "rel"]].astype("Int64")
 
+    # Get the unique query-doc pairs, based on human
+    qd_pairs = set()
+    for row in human_df.iterrows():
+        row = row[1]
+        qd_pairs.add((row["query_id"], row["doc_id"]))
+
+    # Determine how many repeats of judgments are necessary to match without intent to with intent
+    for pair in qd_pairs:
+        subframe = human_df[
+            (human_df["query_id"] == pair[0]) &
+            (human_df["doc_id"] == pair[1])
+        ]
+        # Get the row in without_intent
+        wi_row = combined_without_intent[
+            (combined_without_intent["query_id"] == pair[0]) &
+            (combined_without_intent["doc_id"] == pair[1])
+        ]
+        temp_df = pd.DataFrame(wi_row)
+        if subframe.shape[0] > 1:
+            temp_df_expanded = pd.concat([temp_df] * (subframe.shape[0] - 1), ignore_index=True)
+        else:
+            temp_df_expanded = temp_df
+        combined_without_intent = pd.concat([combined_without_intent, temp_df_expanded], ignore_index=True)
+
     combined_with_intent["rel"] = combined_with_intent.apply(get_human_annotations, args=(human_df,), axis=1)
     combined_without_intent["rel"] = combined_without_intent.apply(
         get_human_annotations, args=(human_df,), axis=1)
+
+    # TODO Make the LLM intent-free judgment match the size of LLM with intent
+    print(human_df.shape, combined_with_intent.shape, combined_without_intent.shape)
 
     LOGGER.info(f"combined_with_intent has {combined_with_intent['result'].isna().sum()} LLM items with NULL judgments")
     LOGGER.info(

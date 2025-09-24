@@ -90,6 +90,10 @@ class Evaluator:
 
         with_intent = pd.DataFrame(model_annotations_with_intent.dicts())
         without_intent = pd.DataFrame(model_annotations_without_intent.dicts())
+
+        # For some reason, there are duplicates of triples (which by definition should be unique), so manual de-duplication is needed
+        with_intent = with_intent.drop_duplicates(subset=["triple"])
+        without_intent = without_intent.drop_duplicates(subset=["triple"])
         LOGGER.info(
             f"Loaded {with_intent.shape[0]} LLM judgments with intent and {without_intent.shape[0]} without intent.")
 
