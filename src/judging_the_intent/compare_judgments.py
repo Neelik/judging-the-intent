@@ -81,9 +81,6 @@ def build_combined_dataframe(human_df, with_intent, without_intent):
     combined_without_intent["rel"] = combined_without_intent.apply(
         get_human_annotations, args=(human_df,), axis=1)
 
-    # TODO Make the LLM intent-free judgment match the size of LLM with intent
-    print(human_df.shape, combined_with_intent.shape, combined_without_intent.shape)
-
     LOGGER.info(f"combined_with_intent has {combined_with_intent['result'].isna().sum()} LLM items with NULL judgments")
     LOGGER.info(
         f"combined_with_intent has {combined_with_intent['rel'].isna().sum()} human items with NULL judgments")
