@@ -1,7 +1,7 @@
 import logging
 from ir_datasets_subsample import register_subsamples
 from scipy.stats import spearmanr
-from pyterrier_t5 import MonoT5ReRanker
+# from pyterrier_t5 import MonoT5ReRanker
 import pyterrier as pt
 import pandas as pd
 
@@ -38,35 +38,34 @@ def rank(dataset_id: str, qrels_directory: str, llm_with_intent: pd.DataFrame, l
 
     bm25 = pt.terrier.Retriever(index, wmodel="BM25")
     pl2 = pt.terrier.Retriever(index, wmodel="PL2")
-    monoT5 = MonoT5ReRanker()
-    monoT5 = bm25 >> monoT5
+    # monoT5 = MonoT5ReRanker()
+    # monoT5 = bm25 >> monoT5
 
     # Human QRels
     human_outcome = pt.Experiment(
-        [bm25, pl2, monoT5],
+        [bm25, pl2],
         topics=topics,
         qrels=qrels,
-        eval_metrics=["ndcg_cut.10", "official"],
-        names=["BM25", "PL2", "MonoT5"],
-        precompute_prefix=True
+        eval_metrics=["ndcg_cut.10", "recip_rank", "official"],
+        names=["BM25", "PL2"],
     )
 
     # LLM QRels with Intent
     llm_outcome = pt.Experiment(
-        [bm25, pl2, monoT5],
+        [bm25, pl2],
         topics=topics,
         qrels=llm_with_intent,
-        eval_metrics=["ndcg_cut.10", "official"],
-        names=["BM25", "PL2", "MonoT5"]
+        eval_metrics=["ndcg_cut.10", "recip_rank", "official"],
+        names=["BM25", "PL2"]
     )
 
     # LLM QRels without Intent
     llm_outcome_si = pt.Experiment(
-        [bm25, pl2, monoT5],
+        [bm25, pl2],
         topics=topics,
         qrels=llm_without_intent,
-        eval_metrics=["ndcg_cut.10", "official"],
-        names=["BM25", "PL2", "MonoT5"]
+        eval_metrics=["ndcg_cut.10", "recip_rank", "official"],
+        names=["BM25", "PL2"]
     )
 
     return human_outcome, llm_outcome, llm_outcome_si

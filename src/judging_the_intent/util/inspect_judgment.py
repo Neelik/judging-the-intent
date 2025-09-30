@@ -56,6 +56,7 @@ def main(doc_id, query_id, intent_id, model):
         "stream": False,
     }
 
+    LOGGER.info(" >> Seeking Explanation with Intent")
     try:
         api_response = requests.post(
             url=f"{OLLAMA_API}/generate",
@@ -67,6 +68,24 @@ def main(doc_id, query_id, intent_id, model):
         print(f"{json.loads(result)['Explanation']}")
     except Exception as e:
         print("Annotation failed.")
+        error = repr(e)
+        print(error)
+
+    LOGGER.info(" >> Seeking Explanation without Intent")
+    data["prompt"] = build_prompt(query.text, None, doc.text)
+    try:
+        api_response = requests.post(
+            url=f"{OLLAMA_API}/generate",
+            data=json.dumps(data),
+            headers={"Content-Type": "application/json"},
+        )
+        result = json.loads(api_response.text)["response"]
+        print(f"NEW:\t{json.loads(result)['Relevance Score']}\tOLD:\t{annotation.result}\tHUMAN:\t{human_annotation.rel.values[0]}\n\n")
+        print(f"{json.loads(result)['Explanation']}")
+    except Exception as e:
+        print("Annotation failed.")
+        error = repr(e)
+        print(error)
 
     # print(f"DOCUMENT\n{doc.text}\n\nQUERY\n{query.text}\n\nINTENT\n{intent.text}\n\nLLM Judgement: {annotation.result}\t\tHuman Judgement: {human_annotation.rel.values[0]}\n\n")
 
