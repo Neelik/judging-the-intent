@@ -35,18 +35,27 @@ def main(dataset, model):
         LOGGER.error("could not find model %s", model)
         sys.exit(1)
 
-    data_dir = Path(__file__).parent.parent.parent.parent.joinpath(
+    filtered_qrels_path = Path(__file__).parent.parent.parent.parent.joinpath(
         "trec-web", "qrels", f"{dataset.replace('/', '-')}-filtered-qrels.tsv")
-    dataset_df = pd.read_csv(data_dir, sep="\t", names=["query_id", "intent_id", "doc_id", "rel"])
-    dataset_df = dataset_df[dataset_df["rel"] >= 2]
+    queries_path = Path(__file__).parent.parent.parent.parent.joinpath(
+        "trec-web", f"{dataset.replace('/', '-')}-queries.tsv")
+    qid_iid_intents_path = Path(__file__).parent.parent.parent.parent.joinpath(
+        "trec-web", f"{dataset.replace('/', '-')}-qid-iid-intent.tsv")
+    queries = pd.read_csv(queries_path, sep="\t", names=["qid", "query"])
+    qid_iid_intents = pd.read_csv(qid_iid_intents_path, sep="\t", names=["qid", "intent_id", "intent"])
+    filtered_qrels = pd.read_csv(filtered_qrels_path, sep="\t", names=["query_id", "intent_id", "doc_id", "rel"])
+    filtered_qrels = filtered_qrels[filtered_qrels["rel"] >= 2]
+
     intent_reannotations = []
     without_intent_reannotations = []
 
-    LOGGER.info(f"Found {dataset_df.shape[0]} documents with positive relevance scores.")
-    for entry in tqdm(dataset_df.itertuples(index=False), total=dataset_df.shape[0]):
+    LOGGER.info(f"Found {filtered_qrels.shape[0]} documents with positive relevance scores.")
+    for entry in tqdm(filtered_qrels.itertuples(index=False), total=filtered_qrels.shape[0]):
         doc = Document.select().where(Document.d_id == entry.doc_id)
-        intent = Intent.select().where(Intent.i_id == entry.intent_id)
-        query = Query.select().where(Query.q_id == entry.query_id)
+        intent_text = qid_iid_intents[(qid_iid_intents["qid"] == entry.query_id) & (qid_iid_intents["intent_id"] == entry.intent_id)]
+        query_text = queries[queries["qid"] == entry.query_id]
+        intent = Intent.select().where(Intent.text == intent_text["intent"].values[0])
+        query = Query.select().where(Query.text == query_text["query"].values[0])
         triple = Triple.select().where(Triple.intent.in_(intent)).where(Triple.query.in_(query)).where(Triple.document.in_(doc))
         annotation = Annotation.select().where(Annotation.triple.in_(triple))
 
