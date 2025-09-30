@@ -12,12 +12,15 @@ LOGGER = logging.getLogger(__file__)
 def accuracy_for_agreement(u, v):
     assert len(u) == len(v)
     num_labels = len(u)
-    identicals = 0
-    for i in range(num_labels):
-        if u[i] == v[i]:
-            identicals += 1
+    if num_labels == 0:
+        return 0.0
+    else:
+        identicals = 0
+        for i in range(num_labels):
+            if u[i] == v[i]:
+                identicals += 1
 
-    return identicals / num_labels
+        return identicals / num_labels
 
 
 def get_human_annotations(row, human_df):
@@ -126,6 +129,38 @@ class JudgmentEvaluator(Evaluator):
                                                       combined_without_intent["result"].values,
                                                       labels=[0, 1, 2, 3])
 
+        # Label 0
+        combined_with_intent_zero = combined_with_intent[combined_with_intent["rel"] == 0]
+        combined_without_intent_zero = combined_without_intent[combined_without_intent["rel"] == 0]
+        class_zero_with_intent = accuracy_for_agreement(combined_with_intent_zero["rel"].values,
+                                                        combined_with_intent_zero["result"].values)
+        class_zero_without_intent = accuracy_for_agreement(combined_without_intent_zero["rel"].values,
+                                                           combined_without_intent_zero["result"].values)
+
+        # Label 1
+        combined_with_intent_one = combined_with_intent[combined_with_intent["rel"] == 1]
+        combined_without_intent_one = combined_without_intent[combined_without_intent["rel"] == 1]
+        class_one_with_intent = accuracy_for_agreement(combined_with_intent_one["rel"].values,
+                                                        combined_with_intent_one["result"].values)
+        class_one_without_intent = accuracy_for_agreement(combined_without_intent_one["rel"].values,
+                                                           combined_without_intent_one["result"].values)
+
+        # Label 2
+        combined_with_intent_two = combined_with_intent[combined_with_intent["rel"] == 2]
+        combined_without_intent_two = combined_without_intent[combined_without_intent["rel"] == 2]
+        class_two_with_intent = accuracy_for_agreement(combined_with_intent_two["rel"].values,
+                                                        combined_with_intent_two["result"].values)
+        class_two_without_intent = accuracy_for_agreement(combined_without_intent_two["rel"].values,
+                                                          combined_without_intent_two["result"].values)
+
+        # Label 3
+        combined_with_intent_three = combined_with_intent[combined_with_intent["rel"] == 3]
+        combined_without_intent_three = combined_without_intent[combined_without_intent["rel"] == 3]
+        class_three_with_intent = accuracy_for_agreement(combined_with_intent_three["rel"].values,
+                                                        combined_with_intent_three["result"].values)
+        class_three_without_intent = accuracy_for_agreement(combined_without_intent_three["rel"].values,
+                                                           combined_without_intent_three["result"].values)
+
         # Collapse positive relevance into a single value, making it a binary evaluation
         combined_with_intent["bin_rel"] = combined_with_intent.apply(
             lambda x: int(x["rel"] >= 1), axis=1)
@@ -169,7 +204,7 @@ class JudgmentEvaluator(Evaluator):
             result_file.write(with_intent_report)
             result_file.write("\n\nCLASSIFICATION ACCURACY WITHOUT INTENT\n\n")
             result_file.write(without_intent_report)
-            result_file.write("BINARY CLASSIFICATION ACCURACY WITH INTENT\n\n")
+            result_file.write("\n\nBINARY CLASSIFICATION ACCURACY WITH INTENT\n\n")
             result_file.write(with_intent_report_bin)
             result_file.write("\n\nBINARY CLASSIFICATION ACCURACY WITHOUT INTENT\n\n")
             result_file.write(without_intent_report_bin)
@@ -181,10 +216,26 @@ class JudgmentEvaluator(Evaluator):
             result_file.write(f"Accuracy:\t{agree_i}")
             result_file.write("\n\nACCURACY FOR AGREEMENT WITHOUT INTENT\n\n")
             result_file.write(f"Accuracy:\t{agree_no_i}")
-            result_file.write(f"BINARY ACCURACY FOR AGREEMENT WITH INTENT\n\n")
+            result_file.write(f"\n\nBINARY ACCURACY FOR AGREEMENT WITH INTENT\n\n")
             result_file.write(f"Accuracy:\t{bin_agree_i}")
-            result_file.write(f"BINARY ACCURACY FOR AGREEMENT WITHOUT INTENT\n\n")
+            result_file.write(f"\n\nBINARY ACCURACY FOR AGREEMENT WITHOUT INTENT\n\n")
             result_file.write(f"Accuracy:\t{bin_agree_no_i}")
+            result_file.write(f"\n\nCLASS 0 ACCURACY WITH INTENT\n\n")
+            result_file.write(f"\t{class_zero_with_intent}")
+            result_file.write(f"\n\nCLASS 0 ACCURACY WITHOUT INTENT\n\n")
+            result_file.write(f"\t{class_zero_without_intent}")
+            result_file.write(f"\n\nCLASS 1 ACCURACY WITH INTENT\n\n")
+            result_file.write(f"\t{class_one_with_intent}")
+            result_file.write(f"\n\nCLASS 1 ACCURACY WITHOUT INTENT\n\n")
+            result_file.write(f"\t{class_one_without_intent}")
+            result_file.write(f"\n\nCLASS 2 ACCURACY WITH INTENT\n\n")
+            result_file.write(f"\t{class_two_with_intent}")
+            result_file.write(f"\n\nCLASS 2 ACCURACY WITHOUT INTENT\n\n")
+            result_file.write(f"\t{class_two_without_intent}")
+            result_file.write(f"\n\nCLASS 3 ACCURACY WITH INTENT\n\n")
+            result_file.write(f"\t{class_three_with_intent}")
+            result_file.write(f"\n\nCLASS 3 ACCURACY WITHOUT INTENT\n\n")
+            result_file.write(f"\t{class_three_without_intent}")
 
 
 def main():
@@ -203,7 +254,6 @@ def main():
         for dataset in args.datasets:
             LOGGER.info(f"Evaluating {model} annotations of {dataset}.")
             JudgmentEvaluator(model, args.data_dir, dataset).run()
-        break
 
 if __name__ == "__main__":
     main()
