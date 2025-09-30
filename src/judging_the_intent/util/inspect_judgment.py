@@ -50,7 +50,7 @@ def main(doc_id, query_id, intent_id, model):
 
     data = {
         "prompt": build_prompt(
-            query.text, intent.text, doc.text
+            query.text, intent.text, doc.text, version="verbose"
         ),
         "model": model,
         "stream": False,
@@ -72,7 +72,7 @@ def main(doc_id, query_id, intent_id, model):
         print(error)
 
     LOGGER.info(" >> Seeking Explanation without Intent")
-    data["prompt"] = build_prompt(query.text, None, doc.text)
+    data["prompt"] = build_prompt(query.text, None, doc.text, version="verbose")
     try:
         api_response = requests.post(
             url=f"{OLLAMA_API}/generate",

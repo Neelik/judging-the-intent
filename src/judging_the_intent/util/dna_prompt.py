@@ -94,6 +94,7 @@ def build_prompt(query: str, intent: str | None, doc: str, version="default") ->
     :param query: Query to be injected into DNA prompt.
     :param intent: Intent to be injected into DNA prompt (if any).
     :param doc: Document to be injected into DNA prompt.
+    :param version: Determines whether to request reasoning or not. Options are "default" for no reasoning, "verbose" for including reasoning.
     :return: The assembled LLM prompt.
     """
     if intent is None:
