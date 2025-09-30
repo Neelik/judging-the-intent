@@ -55,7 +55,7 @@ def main(dataset, model):
         query_text = queries[queries["qid"] == entry.query_id]
         intent = Intent.select().where(Intent.i_id == entry.intent_id).where(Intent.query_id == entry.query_id)
         query = Query.select().where(Query.text == query_text["query"].values[0])
-        triple = Triple.select().where(Triple.intent.in_(intent)).where(Triple.query.in_(query)).where(Triple.document.in_(doc))
+        triple = Triple.select().where(Triple.intent_id == entry.intent_id).where(Triple.query_id == entry.query_id).where(Triple.document_id == entry.doc_id)
         annotation = Annotation.select().where(Annotation.triple.in_(triple))
 
         query = query.get_or_none()
@@ -133,7 +133,7 @@ def main(dataset, model):
 
 
 if __name__ == "__main__":
-    # llama3.1:8b-instruct-q4_K_M
+    # llama3.2:3b-instruct-q4_K_M
     # corpus-subsamples/clueweb12/trec-web-2014
     running = True
     model = input("Please enter the Ollama model identifier: ")
