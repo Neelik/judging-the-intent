@@ -52,9 +52,8 @@ def main(dataset, model):
     LOGGER.info(f"Found {filtered_qrels.shape[0]} documents with positive relevance scores.")
     for entry in tqdm(filtered_qrels.itertuples(index=False), total=filtered_qrels.shape[0]):
         doc = Document.select().where(Document.d_id == entry.doc_id)
-        intent_text = qid_iid_intents[(qid_iid_intents["qid"] == entry.query_id) & (qid_iid_intents["intent_id"] == entry.intent_id)]
         query_text = queries[queries["qid"] == entry.query_id]
-        intent = Intent.select().where(Intent.text == intent_text["intent"].values[0])
+        intent = Intent.select().where(Intent.i_id == entry.intent_id).where(Intent.query_id == entry.query_id)
         query = Query.select().where(Query.text == query_text["query"].values[0])
         triple = Triple.select().where(Triple.intent.in_(intent)).where(Triple.query.in_(query)).where(Triple.document.in_(doc))
         annotation = Annotation.select().where(Annotation.triple.in_(triple))
@@ -89,7 +88,7 @@ def main(dataset, model):
                 "annotation": json.loads(result)['Relevance Score'],
                 "explanation": json.loads(result)['Explanation'],
                 "human_judgment": entry.rel,
-                "old_llm_judgment": annotation.result,
+                "old_llm_judgment": annotation.result if annotation else None,
             })
         except Exception as e:
             print("Annotation failed.")
@@ -114,7 +113,7 @@ def main(dataset, model):
                 "annotation": json.loads(result)['Relevance Score'],
                 "explanation": json.loads(result)['Explanation'],
                 "human_judgment": entry.rel,
-                "old_llm_judgment": annotation.result,
+                "old_llm_judgment": annotation.result if annotation else None,
             })
         except Exception as e:
             print("Annotation failed.")
@@ -134,6 +133,8 @@ def main(dataset, model):
 
 
 if __name__ == "__main__":
+    # llama3.1:8b-instruct-q4_K_M
+    # corpus-subsamples/clueweb12/trec-web-2014
     running = True
     model = input("Please enter the Ollama model identifier: ")
     dataset = input("Please enter the dataset identifier: ")
