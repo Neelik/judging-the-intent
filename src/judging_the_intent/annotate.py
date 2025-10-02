@@ -35,6 +35,10 @@ class Annotator:
     def __init__(self, model: str, parser: Parser) -> None:
         self._model = model
         self._parser = parser
+        self._dataset_name = None
+
+    def set_dataset(self, dataset_name: str) -> None:
+        self._dataset_name = dataset_name
 
     def run(self) -> None:
         """Run the annotation.
@@ -54,10 +58,20 @@ class Annotator:
         else:
             LOGGER.info("found model %s (version %s) in DB", self._model, __version__)
 
+        # If there is a dataset_name set, then filter the unannotated triples specifically for that dataset
+        if self._dataset_name:
+            queries = (
+                Query.select()
+                .where(Query.dataset_name == self._dataset_name)
+            )
+        else:
+            queries = Query.select()
+
         # select all triples except the ones that are already annotated
         # this includes annotation with errors
         unannotated_triples_cte = (
             Triple.select()
+            .where(Triple.query.in_(queries))
             .except_(
                 Triple.select()
                 .join(Annotation)
@@ -93,7 +107,8 @@ class Annotator:
         for item in tqdm(unannotated_triples.dicts(), total=count):
             data = {
                 "prompt": build_prompt(
-                    item["query_text"], item["intent_text"], item["document_text"]
+                    item["query_text"], item["intent_text"], item["document_text"],
+                    version="verbose"
                 ),
                 "model": self._model,
                 "stream": False,
@@ -108,14 +123,14 @@ class Annotator:
             if prompt_length > context_length:
                 LOGGER.warning(f"Triple {item['id']} exceeded context length {context_length}.")
 
-            result, error = None, None
+            result, error, explanation = None, None, None
             try:
                 api_response = requests.post(
                     url=f"{OLLAMA_API}/generate",
                     data=json.dumps(data),
                     headers={"Content-Type": "application/json"},
                 )
-                result = self._parser(json.loads(api_response.text)["response"])
+                result, explanation = self._parser(json.loads(api_response.text)["response"])
             except Exception as e:
                 LOGGER.error("error while annotating triple %s", item["id"])
                 error = repr(e)
@@ -127,10 +142,11 @@ class Annotator:
                     result=result,
                     error=error,
                     truncated=True if prompt_length >= context_length else False,
+                    explanation=explanation,
                 ).on_conflict(
                     conflict_target=[Annotation.triple, Annotation.config],
                     preserve=[Annotation.triple, Annotation.config],
-                    update={Annotation.result: result, Annotation.error: error},
+                    update={Annotation.result: result, Annotation.error: error, Annotation.explanation: explanation},
                 ).execute()
 
 
@@ -139,6 +155,7 @@ def main():
     ap.add_argument(
         "--models", required=True, nargs="+", help="Ollama model identifiers."
     )
+    ap.add_argument("--dataset", nargs=1, required=False, help="IR Datasets dataset identifier. Single dataset only.")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -150,7 +167,10 @@ def main():
         for parser in parsers:
             if parser.matches(model):
                 LOGGER.info("processing %s using %s", model, parser.__class__.__name__)
-                Annotator(model, parser).run()
+                annotator = Annotator(model, parser)
+                if args.dataset:
+                    annotator.set_dataset(args.dataset)
+                annotator.run()
                 break
 
 

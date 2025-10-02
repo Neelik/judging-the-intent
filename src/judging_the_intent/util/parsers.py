@@ -16,13 +16,16 @@ class Parser:
         """
         return True
 
-    def __call__(self, response_text: str) -> int:
+    def __call__(self, response_text: str) -> tuple[int, str]:
         """Parse the model response.
 
         :param response_text: The model output.
         :return: The relevance score.
         """
-        return int(json.loads(response_text)["Relevance Score"])
+        loaded_string = json.loads(response_text)
+        result = int(loaded_string["Relevance Score"])
+        explanation = loaded_string["Explanation"]
+        return result, explanation
 
 
 class Phi4Parser(Parser):
