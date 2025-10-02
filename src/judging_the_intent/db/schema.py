@@ -56,6 +56,7 @@ class Annotation(BaseModel):
     error = TextField(null=True)
     timestamp = TimestampField(default=time.time)
     truncated = BooleanField(default=False)
+    explanation = TextField(null=True)
 
     class Meta:
         indexes = ((("triple", "config"), True),)
