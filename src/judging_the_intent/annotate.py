@@ -112,6 +112,21 @@ class Annotator:
                 ),
                 "model": self._model,
                 "stream": False,
+                "format": {
+                    "type": "object",
+                    "properties": {
+                        "Relevance Score": {
+                            "type": "integer"
+                        },
+                        "Explanation": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "Relevance Score",
+                        "Explanation"
+                    ]
+                }
             }
 
             # Before passing to the API, check whether the built prompt will be truncated based on the defined context window
