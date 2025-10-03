@@ -3,8 +3,7 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from pathlib import Path
 import pandas as pd
 from judging_the_intent.util.eval import Evaluator
-from sklearn.metrics import classification_report, cohen_kappa_score
-from scipy.stats import kstest, kendalltau
+from sklearn.metrics import classification_report, cohen_kappa_score, accuracy_score
 
 LOGGER = logging.getLogger(__file__)
 
@@ -136,6 +135,10 @@ class JudgmentEvaluator(Evaluator):
                                                         combined_with_intent_zero["result"].values)
         class_zero_without_intent = accuracy_for_agreement(combined_without_intent_zero["rel"].values,
                                                            combined_without_intent_zero["result"].values)
+        sk_class_zero_with_intent = accuracy_score(combined_with_intent_zero["rel"].values,
+                                                   combined_with_intent_zero["result"].values)
+        sk_class_zero_without_intent = accuracy_score(combined_without_intent_zero["rel"].values,
+                                                      combined_without_intent_zero["result"].values)
 
         # Label 1
         combined_with_intent_one = combined_with_intent[combined_with_intent["rel"] == 1]
@@ -144,6 +147,10 @@ class JudgmentEvaluator(Evaluator):
                                                         combined_with_intent_one["result"].values)
         class_one_without_intent = accuracy_for_agreement(combined_without_intent_one["rel"].values,
                                                            combined_without_intent_one["result"].values)
+        sk_class_one_with_intent = accuracy_score(combined_with_intent_one["rel"].values,
+                                                  combined_with_intent_one["result"].values)
+        sk_class_one_without_intent = accuracy_score(combined_without_intent_one["rel"].values,
+                                                     combined_without_intent_one["result"].values)
 
         # Label 2
         combined_with_intent_two = combined_with_intent[combined_with_intent["rel"] == 2]
@@ -152,6 +159,10 @@ class JudgmentEvaluator(Evaluator):
                                                         combined_with_intent_two["result"].values)
         class_two_without_intent = accuracy_for_agreement(combined_without_intent_two["rel"].values,
                                                           combined_without_intent_two["result"].values)
+        sk_class_two_with_intent = accuracy_score(combined_with_intent_two["rel"].values,
+                                                  combined_with_intent_two["result"].values)
+        sk_class_two_without_intent = accuracy_score(combined_without_intent_two["rel"].values,
+                                                     combined_without_intent_two["result"].values)
 
         # Label 3
         combined_with_intent_three = combined_with_intent[combined_with_intent["rel"] == 3]
@@ -160,6 +171,10 @@ class JudgmentEvaluator(Evaluator):
                                                         combined_with_intent_three["result"].values)
         class_three_without_intent = accuracy_for_agreement(combined_without_intent_three["rel"].values,
                                                            combined_without_intent_three["result"].values)
+        sk_class_three_with_intent = accuracy_score(combined_with_intent_three["rel"].values,
+                                                    combined_with_intent_three["result"].values)
+        sk_class_three_without_intent = accuracy_score(combined_without_intent_three["rel"].values,
+                                                       combined_without_intent_three["result"].values)
 
         # Collapse positive relevance into a single value, making it a binary evaluation
         combined_with_intent["bin_rel"] = combined_with_intent.apply(
@@ -236,6 +251,22 @@ class JudgmentEvaluator(Evaluator):
             result_file.write(f"\t{class_three_with_intent}")
             result_file.write(f"\n\nCLASS 3 ACCURACY WITHOUT INTENT\n\n")
             result_file.write(f"\t{class_three_without_intent}")
+            result_file.write(f"\n\nSCIKIT CLASS 0 ACCURACY WITH INTENT\n\n")
+            result_file.write(f"\t{sk_class_zero_with_intent}")
+            result_file.write(f"\n\nSCIKIT CLASS 0 ACCURACY WITHOUT INTENT\n\n")
+            result_file.write(f"\t{sk_class_zero_without_intent}")
+            result_file.write(f"\n\nSCIKIT CLASS 1 ACCURACY WITH INTENT\n\n")
+            result_file.write(f"\t{sk_class_one_with_intent}")
+            result_file.write(f"\n\nSCIKIT CLASS 1 ACCURACY WITHOUT INTENT\n\n")
+            result_file.write(f"\t{sk_class_one_without_intent}")
+            result_file.write(f"\n\nSCIKIT CLASS 2 ACCURACY WITH INTENT\n\n")
+            result_file.write(f"\t{sk_class_two_with_intent}")
+            result_file.write(f"\n\nSCIKIT CLASS 2 ACCURACY WITHOUT INTENT\n\n")
+            result_file.write(f"\t{sk_class_two_without_intent}")
+            result_file.write(f"\n\nSCIKIT CLASS 3 ACCURACY WITH INTENT\n\n")
+            result_file.write(f"\t{sk_class_three_with_intent}")
+            result_file.write(f"\n\nSCIKIT CLASS 3 ACCURACY WITHOUT INTENT\n\n")
+            result_file.write(f"\t{sk_class_three_without_intent}")
 
 
 def main():
