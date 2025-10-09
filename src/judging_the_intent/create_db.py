@@ -2,6 +2,7 @@ import csv
 import logging
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from pathlib import Path
+from tqdm import tqdm
 
 import ir_datasets
 from ir_datasets_subsample import register_subsamples
@@ -98,7 +99,7 @@ def main():
         else:
             queries = set()
             qid_pairs = set()
-            for query in dataset.queries_iter():
+            for query in tqdm(dataset.queries_iter(), total=dataset.queries_count(), desc=">> Inserting Queries..."):
                 queries.add(query.query_id)
                 Query.insert(q_id=query.query_id, dataset_name=dataset_name, text=query.text).on_conflict_ignore().execute()
             with open(
@@ -109,7 +110,7 @@ def main():
                 newline="",
                 mode="w"
             ) as fp:
-                for qrel in dataset.qrels_iter():
+                for qrel in tqdm(dataset.qrels_iter(), total=dataset.qrels_count(), desc=">> Inserting QRels..."):
                     # namedtuple<query_id, doc_id, relevance, iteration>
                     if qrel.query_id in queries:
                         qid_pairs.add((qrel.query_id, qrel.doc_id))
