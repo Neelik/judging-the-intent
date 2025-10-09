@@ -42,54 +42,70 @@ def get_human_annotations(row, human_df):
 
 
 def build_combined_dataframe(human_df, with_intent, without_intent):
-    combined_with_intent = with_intent.copy()
-    combined_with_intent = combined_with_intent.dropna(subset=["result"])
+    # Handle data type wrangling for human ground truth
+    human_df[["query_id", "intent_id", "rel"]] = human_df[["query_id", "intent_id", "rel"]].astype("Int64")
+
+    # Handle everything for the without_intent
     combined_without_intent = without_intent.copy()
     combined_without_intent = combined_without_intent.dropna(subset=["result"])
 
     # Ensure all judgments and IDs (except doc_id) are int64
-    combined_with_intent[["query_id", "intent_id", "result"]] = combined_with_intent[
-        ["query_id", "intent_id", "result"]].astype("Int64")
     combined_without_intent[["query_id", "result"]] = combined_without_intent[
         ["query_id", "result"]].astype("Int64")
     combined_without_intent["intent_id"] = combined_without_intent["intent_id"].fillna('')
-    human_df[["query_id", "intent_id", "rel"]] = human_df[["query_id", "intent_id", "rel"]].astype("Int64")
 
-    # Get the unique query-doc pairs, based on human
-    qd_pairs = set()
-    for row in human_df.iterrows():
-        row = row[1]
-        qd_pairs.add((row["query_id"], row["doc_id"]))
-
-    # Determine how many repeats of judgments are necessary to match without intent to with intent
-    for pair in qd_pairs:
-        subframe = human_df[
-            (human_df["query_id"] == pair[0]) &
-            (human_df["doc_id"] == pair[1])
-        ]
-        # Get the row in without_intent
-        wi_row = combined_without_intent[
-            (combined_without_intent["query_id"] == pair[0]) &
-            (combined_without_intent["doc_id"] == pair[1])
-        ]
-        temp_df = pd.DataFrame(wi_row)
-        if subframe.shape[0] > 1:
-            temp_df_expanded = pd.concat([temp_df] * (subframe.shape[0] - 1), ignore_index=True)
-        else:
-            temp_df_expanded = temp_df
-        combined_without_intent = pd.concat([combined_without_intent, temp_df_expanded], ignore_index=True)
-
-    combined_with_intent["rel"] = combined_with_intent.apply(get_human_annotations, args=(human_df,), axis=1)
     combined_without_intent["rel"] = combined_without_intent.apply(
         get_human_annotations, args=(human_df,), axis=1)
 
-    LOGGER.info(f"combined_with_intent has {combined_with_intent['result'].isna().sum()} LLM items with NULL judgments")
-    LOGGER.info(
-        f"combined_with_intent has {combined_with_intent['rel'].isna().sum()} human items with NULL judgments")
     LOGGER.info(
         f"combined_without_intent has {combined_without_intent['result'].isna().sum()} LLM items with NULL judgments")
     LOGGER.info(
         f"combined_without_intent has {combined_without_intent['rel'].isna().sum()} LLM items with NULL judgments")
+
+    # Handle everything for with_intent, if there is no intent judgments, return an empty DataFrame
+    if not with_intent.empty:
+        combined_with_intent = with_intent.copy()
+        combined_with_intent = combined_with_intent.dropna(subset=["result"])
+
+        # Ensure all judgments and IDs (except doc_id) are int64
+        combined_with_intent[["query_id", "intent_id", "result"]] = combined_with_intent[
+            ["query_id", "intent_id", "result"]].astype("Int64")
+
+        combined_with_intent["rel"] = combined_with_intent.apply(get_human_annotations, args=(human_df,), axis=1)
+
+        # Get the unique query-doc pairs, based on human
+        qd_pairs = set()
+        for row in human_df.iterrows():
+            row = row[1]
+            qd_pairs.add((row["query_id"], row["doc_id"]))
+
+        # Determine how many repeats of judgments are necessary to match without intent to with intent
+        for pair in qd_pairs:
+            subframe = human_df[
+                (human_df["query_id"] == pair[0]) &
+                (human_df["doc_id"] == pair[1])
+            ]
+            # Get the row in without_intent
+            wi_row = combined_without_intent[
+                (combined_without_intent["query_id"] == pair[0]) &
+                (combined_without_intent["doc_id"] == pair[1])
+            ]
+            temp_df = pd.DataFrame(wi_row)
+            if subframe.shape[0] > 1:
+                temp_df_expanded = pd.concat([temp_df] * (subframe.shape[0] - 1), ignore_index=True)
+            else:
+                temp_df_expanded = temp_df
+            combined_without_intent = pd.concat([combined_without_intent, temp_df_expanded], ignore_index=True)
+
+        combined_with_intent["rel"] = combined_with_intent.apply(get_human_annotations, args=(human_df,), axis=1)
+
+
+        LOGGER.info(f"combined_with_intent has {combined_with_intent['result'].isna().sum()} LLM items with NULL judgments")
+        LOGGER.info(
+            f"combined_with_intent has {combined_with_intent['rel'].isna().sum()} human items with NULL judgments")
+
+    else:
+        combined_with_intent = with_intent
 
     return combined_with_intent, combined_without_intent
 
@@ -121,90 +137,102 @@ class JudgmentEvaluator(Evaluator):
         # Create a copy of human judgment DataFrame and add a column with the matching LLM Judgments
         combined_with_intent, combined_without_intent = build_combined_dataframe(human_df, with_intent, without_intent)
 
+        # WITHOUT INTENT
         # Classification accuracy
-        with_intent_report = classification_report(combined_with_intent["rel"].values,
-                                                   combined_with_intent["result"].values, labels=[0, 1, 2, 3])
         without_intent_report = classification_report(combined_without_intent["rel"].values,
                                                       combined_without_intent["result"].values,
                                                       labels=[0, 1, 2, 3])
 
         # Label 0
-        combined_with_intent_zero = combined_with_intent[combined_with_intent["rel"] == 0]
         combined_without_intent_zero = combined_without_intent[combined_without_intent["rel"] == 0]
-        class_zero_with_intent = accuracy_for_agreement(combined_with_intent_zero["rel"].values,
-                                                        combined_with_intent_zero["result"].values)
-        class_zero_without_intent = accuracy_for_agreement(combined_without_intent_zero["rel"].values,
-                                                           combined_without_intent_zero["result"].values)
-        sk_class_zero_with_intent = accuracy_score(combined_with_intent_zero["rel"].values,
-                                                   combined_with_intent_zero["result"].values)
         sk_class_zero_without_intent = accuracy_score(combined_without_intent_zero["rel"].values,
                                                       combined_without_intent_zero["result"].values)
 
         # Label 1
-        combined_with_intent_one = combined_with_intent[combined_with_intent["rel"] == 1]
         combined_without_intent_one = combined_without_intent[combined_without_intent["rel"] == 1]
-        class_one_with_intent = accuracy_for_agreement(combined_with_intent_one["rel"].values,
-                                                        combined_with_intent_one["result"].values)
-        class_one_without_intent = accuracy_for_agreement(combined_without_intent_one["rel"].values,
-                                                           combined_without_intent_one["result"].values)
-        sk_class_one_with_intent = accuracy_score(combined_with_intent_one["rel"].values,
-                                                  combined_with_intent_one["result"].values)
         sk_class_one_without_intent = accuracy_score(combined_without_intent_one["rel"].values,
                                                      combined_without_intent_one["result"].values)
 
         # Label 2
-        combined_with_intent_two = combined_with_intent[combined_with_intent["rel"] == 2]
         combined_without_intent_two = combined_without_intent[combined_without_intent["rel"] == 2]
-        class_two_with_intent = accuracy_for_agreement(combined_with_intent_two["rel"].values,
-                                                        combined_with_intent_two["result"].values)
-        class_two_without_intent = accuracy_for_agreement(combined_without_intent_two["rel"].values,
-                                                          combined_without_intent_two["result"].values)
-        sk_class_two_with_intent = accuracy_score(combined_with_intent_two["rel"].values,
-                                                  combined_with_intent_two["result"].values)
         sk_class_two_without_intent = accuracy_score(combined_without_intent_two["rel"].values,
                                                      combined_without_intent_two["result"].values)
 
         # Label 3
-        combined_with_intent_three = combined_with_intent[combined_with_intent["rel"] == 3]
         combined_without_intent_three = combined_without_intent[combined_without_intent["rel"] == 3]
-        class_three_with_intent = accuracy_for_agreement(combined_with_intent_three["rel"].values,
-                                                        combined_with_intent_three["result"].values)
-        class_three_without_intent = accuracy_for_agreement(combined_without_intent_three["rel"].values,
-                                                           combined_without_intent_three["result"].values)
-        sk_class_three_with_intent = accuracy_score(combined_with_intent_three["rel"].values,
-                                                    combined_with_intent_three["result"].values)
         sk_class_three_without_intent = accuracy_score(combined_without_intent_three["rel"].values,
                                                        combined_without_intent_three["result"].values)
 
-        # Collapse positive relevance into a single value, making it a binary evaluation
-        combined_with_intent["bin_rel"] = combined_with_intent.apply(
-            lambda x: int(x["rel"] >= 1), axis=1)
-        combined_with_intent["bin_result"] = combined_with_intent.apply(
-            lambda x: int(x["result"] >= 1), axis=1)
+        # Binary Classification
         combined_without_intent["bin_rel"] = combined_without_intent.apply(
             lambda x: int(x["rel"] >= 1), axis=1)
         combined_without_intent["bin_result"] = combined_without_intent.apply(
             lambda x: int(x["result"] >= 1), axis=1)
-
-        # Binary classification accuracy
-        with_intent_report_bin = classification_report(combined_with_intent["bin_rel"].values,
-                                                   combined_with_intent["bin_result"].values, labels=[0, 1])
         without_intent_report_bin = classification_report(combined_without_intent["bin_rel"].values,
-                                                      combined_without_intent["bin_result"].values,
-                                                      labels=[0, 1])
+                                                          combined_without_intent["bin_result"].values,
+                                                          labels=[0, 1])
+        bin_agree_no_i = accuracy_score(combined_without_intent["bin_rel"].values,
+                                        combined_without_intent["bin_result"].values)
 
         # Accuracy for Agreement Assessment
-        agree_i = accuracy_for_agreement(combined_with_intent["rel"].values, combined_with_intent["result"].values)
-        agree_no_i = accuracy_for_agreement(combined_without_intent["rel"].values, combined_without_intent["result"].values)
+        agree_no_i = accuracy_score(combined_without_intent["rel"].values, combined_without_intent["result"].values)
 
-        # Binary Accuracy for Agreement Assessment
-        bin_agree_i = accuracy_for_agreement(combined_with_intent["bin_rel"].values, combined_with_intent["bin_result"].values)
-        bin_agree_no_i = accuracy_for_agreement(combined_without_intent["bin_rel"].values,
-                                            combined_without_intent["bin_result"].values)
+        # WITH INTENT
+        # Classification accuracy
+        with_intent_report = classification_report(combined_with_intent["rel"].values,
+                                                   combined_with_intent["result"].values, labels=[0, 1, 2, 3])
 
         # Cohen's Kappa
-        cohen_i = cohen_kappa_score(combined_with_intent["rel"].values, combined_with_intent["result"].values)
         cohen_no_i = cohen_kappa_score(combined_without_intent["rel"].values, combined_without_intent["result"].values)
+
+        # Label 0
+        if not combined_with_intent.empty:
+            combined_with_intent_zero = combined_with_intent[combined_with_intent["rel"] == 0]
+            sk_class_zero_with_intent = accuracy_score(combined_with_intent_zero["rel"].values,
+                                                       combined_with_intent_zero["result"].values)
+
+
+            # Label 1
+            combined_with_intent_one = combined_with_intent[combined_with_intent["rel"] == 1]
+            sk_class_one_with_intent = accuracy_score(combined_with_intent_one["rel"].values,
+                                                      combined_with_intent_one["result"].values)
+
+            # Label 2
+            combined_with_intent_two = combined_with_intent[combined_with_intent["rel"] == 2]
+            sk_class_two_with_intent = accuracy_score(combined_with_intent_two["rel"].values,
+                                                      combined_with_intent_two["result"].values)
+
+            # Label 3
+            combined_with_intent_three = combined_with_intent[combined_with_intent["rel"] == 3]
+            sk_class_three_with_intent = accuracy_score(combined_with_intent_three["rel"].values,
+                                                        combined_with_intent_three["result"].values)
+
+            # Collapse positive relevance into a single value, making it a binary evaluation
+            combined_with_intent["bin_rel"] = combined_with_intent.apply(
+                lambda x: int(x["rel"] >= 1), axis=1)
+            combined_with_intent["bin_result"] = combined_with_intent.apply(
+                lambda x: int(x["result"] >= 1), axis=1)
+
+            # Binary classification accuracy
+            with_intent_report_bin = classification_report(combined_with_intent["bin_rel"].values,
+                                                           combined_with_intent["bin_result"].values, labels=[0, 1])
+            bin_agree_i = accuracy_score(combined_with_intent["bin_rel"].values,
+                                         combined_with_intent["bin_result"].values)
+
+            # Accuracy for Agreement Assessment
+            agree_i = accuracy_score(combined_with_intent["rel"].values, combined_with_intent["result"].values)
+
+            # Cohen's Kappa
+            cohen_i = cohen_kappa_score(combined_with_intent["rel"].values, combined_with_intent["result"].values)
+        else:
+            sk_class_zero_with_intent = 0.0
+            sk_class_one_with_intent = 0.0
+            sk_class_two_with_intent = 0.0
+            sk_class_three_with_intent = 0.0
+            with_intent_report_bin = ""
+            agree_i = 0.0
+            bin_agree_i = 0.0
+            cohen_i = 0.0
 
         # Create the results directory if it doesn't exist already
         results_directory = Path(self._data_dir).parent.joinpath("compare-output")
@@ -235,22 +263,6 @@ class JudgmentEvaluator(Evaluator):
             result_file.write(f"Accuracy:\t{bin_agree_i}")
             result_file.write(f"\n\nBINARY ACCURACY FOR AGREEMENT WITHOUT INTENT\n\n")
             result_file.write(f"Accuracy:\t{bin_agree_no_i}")
-            result_file.write(f"\n\nCLASS 0 ACCURACY WITH INTENT\n\n")
-            result_file.write(f"\t{class_zero_with_intent}")
-            result_file.write(f"\n\nCLASS 0 ACCURACY WITHOUT INTENT\n\n")
-            result_file.write(f"\t{class_zero_without_intent}")
-            result_file.write(f"\n\nCLASS 1 ACCURACY WITH INTENT\n\n")
-            result_file.write(f"\t{class_one_with_intent}")
-            result_file.write(f"\n\nCLASS 1 ACCURACY WITHOUT INTENT\n\n")
-            result_file.write(f"\t{class_one_without_intent}")
-            result_file.write(f"\n\nCLASS 2 ACCURACY WITH INTENT\n\n")
-            result_file.write(f"\t{class_two_with_intent}")
-            result_file.write(f"\n\nCLASS 2 ACCURACY WITHOUT INTENT\n\n")
-            result_file.write(f"\t{class_two_without_intent}")
-            result_file.write(f"\n\nCLASS 3 ACCURACY WITH INTENT\n\n")
-            result_file.write(f"\t{class_three_with_intent}")
-            result_file.write(f"\n\nCLASS 3 ACCURACY WITHOUT INTENT\n\n")
-            result_file.write(f"\t{class_three_without_intent}")
             result_file.write(f"\n\nSCIKIT CLASS 0 ACCURACY WITH INTENT\n\n")
             result_file.write(f"\t{sk_class_zero_with_intent}")
             result_file.write(f"\n\nSCIKIT CLASS 0 ACCURACY WITHOUT INTENT\n\n")
