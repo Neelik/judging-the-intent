@@ -180,16 +180,16 @@ class JudgmentEvaluator(Evaluator):
         # Accuracy for Agreement Assessment
         agree_no_i = accuracy_score(combined_without_intent["rel"].values, combined_without_intent["result"].values)
 
-        # WITH INTENT
-        # Classification accuracy
-        with_intent_report = classification_report(combined_with_intent["rel"].values,
-                                                   combined_with_intent["result"].values, labels=[0, 1, 2, 3])
-
         # Cohen's Kappa
         cohen_no_i = cohen_kappa_score(combined_without_intent["rel"].values, combined_without_intent["result"].values)
 
-        # Label 0
+        # WITH INTENT
         if not combined_with_intent.empty:
+            # Classification accuracy
+            with_intent_report = classification_report(combined_with_intent["rel"].values,
+                                                       combined_with_intent["result"].values, labels=[0, 1, 2, 3])
+
+            # Label 0
             combined_with_intent_zero = combined_with_intent[combined_with_intent["rel"] == 0]
             sk_class_zero_with_intent = accuracy_score(combined_with_intent_zero["rel"].values,
                                                        combined_with_intent_zero["result"].values)
@@ -233,6 +233,7 @@ class JudgmentEvaluator(Evaluator):
             sk_class_two_with_intent = 0.0
             sk_class_three_with_intent = 0.0
             with_intent_report_bin = ""
+            with_intent_report = ""
             agree_i = 0.0
             bin_agree_i = 0.0
             cohen_i = 0.0
