@@ -67,8 +67,6 @@ class Annotator:
         else:
             queries = Query.select()
 
-        print(queries.count())
-        return
         # select all triples except the ones that are already annotated
         # this includes annotation with errors
         unannotated_triples_cte = (
