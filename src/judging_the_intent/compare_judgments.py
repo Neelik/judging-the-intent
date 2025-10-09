@@ -43,6 +43,9 @@ def get_human_annotations(row, human_df):
 
 def build_combined_dataframe(human_df, with_intent, without_intent):
     # Handle data type wrangling for human ground truth
+    if human_df.intent_id.dtype == "object":
+        # This means it's a dataset without intents, so they are empty strings from the filtered-qrels
+        human_df["intent_id"] = 1
     human_df[["query_id", "intent_id", "rel"]] = human_df[["query_id", "intent_id", "rel"]].astype("Int64")
 
     # Handle everything for the without_intent
