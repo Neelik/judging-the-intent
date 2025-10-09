@@ -35,10 +35,10 @@ class Annotator:
     def __init__(self, model: str, parser: Parser) -> None:
         self._model = model
         self._parser = parser
-        self._dataset_name = None
+        self._datasets = None
 
-    def set_dataset(self, dataset_name: str) -> None:
-        self._dataset_name = dataset_name
+    def set_dataset(self, dataset_names: list) -> None:
+        self._datasets = dataset_names
 
     def run(self) -> None:
         """Run the annotation.
@@ -58,15 +58,17 @@ class Annotator:
         else:
             LOGGER.info("found model %s (version %s) in DB", self._model, __version__)
 
-        # If there is a dataset_name set, then filter the unannotated triples specifically for that dataset
-        if self._dataset_name:
+        # If there are datasets specified, then filter the unannotated triples specifically for those datasets
+        if self._datasets:
             queries = (
                 Query.select()
-                .where(Query.dataset_name == self._dataset_name)
+                .where(Query.dataset_name.in_(self._datasets))
             )
         else:
             queries = Query.select()
 
+        print(queries.count())
+        return
         # select all triples except the ones that are already annotated
         # this includes annotation with errors
         unannotated_triples_cte = (
@@ -170,7 +172,7 @@ def main():
     ap.add_argument(
         "--models", required=True, nargs="+", help="Ollama model identifiers."
     )
-    ap.add_argument("--dataset", nargs=1, required=False, help="IR Datasets dataset identifier. Single dataset only.")
+    ap.add_argument("--dataset", nargs="+", required=False, help="IR Datasets dataset identifiers.")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO)
