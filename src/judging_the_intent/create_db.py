@@ -28,22 +28,28 @@ def main():
     ap.add_argument(
         "--data_dir",
         type=Path,
-        default=Path(__file__).parent.parent.parent.joinpath("trec-web"),
-        help="Where trec-web files are located.",
+        default=Path(__file__).parent.parent.parent.joinpath("datasets"),
+        help="Where dataset files are located.",
     )
+    ap.add_argument("--intent", action="store_true", default=False, help="Include search intents in Triples creation")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     register_subsamples()
 
     with DATABASE:
+        LOGGER.info("Creating initial tables...")
         DATABASE.create_tables([Query, Intent, Document, Triple, Config, Annotation])
 
     for dataset_name in args.datasets:
         LOGGER.info("processing %s", dataset_name)
 
-        dataset = ir_datasets.load(dataset_name)
-        docs_store = dataset.docs_store()
+        try:
+            dataset = ir_datasets.load(dataset_name)
+            docs_store = dataset.docs_store()
+        except Exception as e:
+            LOGGER.exception("failed to load dataset %s", dataset_name)
+            raise e
         qd_pairs = set()
 
         # Create the special branch for ClueWeb subsample
@@ -102,10 +108,10 @@ def main():
             for query in tqdm(dataset.queries_iter(), total=dataset.queries_count(), desc=">> Inserting Queries..."):
                 queries.add(query.query_id)
                 Query.insert(q_id=query.query_id, dataset_name=dataset_name, text=query.text).on_conflict_ignore().execute()
-            with open(
-                args.data_dir
-                / "qrels"
-                / f"{dataset_name.replace('/', '-')}-filtered-qrels.tsv",
+            dataset_top_level_name, dataset_track = dataset_name.split("/")
+            filtered_qrels_directory_path = Path(args.data_dir).joinpath(f"{dataset_name}", "qrels")
+            filtered_qrels_directory_path.mkdir(parents=True, exist_ok=True)
+            with open(str(filtered_qrels_directory_path.joinpath(f"{dataset_track}-filtered-qrels.tsv")),
                 encoding="utf-8",
                 newline="",
                 mode="w"
@@ -124,9 +130,8 @@ def main():
                         Document.insert(d_id=qrel.doc_id, text=d_text).on_conflict_ignore().execute()
                         Triple.create(query=qrel.query_id, intent=None, document=qrel.doc_id)
 
-
                         # Also build the filtered-qrels .csv for evaluation purposes. Future versions will convert this to DB driven
-                        fp.write(f"{qrel.query_id}\t \t{qrel.doc_id}\t{qrel.relevance}\n")
+                        fp.write(f"{qrel.query_id}\t0\t{qrel.doc_id}\t{qrel.relevance}\n")
 
 if __name__ == "__main__":
     main()

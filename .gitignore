@@ -176,6 +176,7 @@ cython_debug/
 # PyCharm
 .idea/
 
+# Project specific stuff
 src/judging_the_intent/util/*.sh
 out.tsv
 trec-web/*
@@ -186,5 +187,9 @@ ClueWeb/clueweb09/*
 ClueWeb/clueweb12/*
 *.db
 *.sql
+
+# Softlinks to external server storage locations
+checkpoint
+datasets
 
 .DS_Store
