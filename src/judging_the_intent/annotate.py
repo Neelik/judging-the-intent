@@ -1,14 +1,15 @@
-import json
 import logging
 import os
+import peewee
+import torch
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
-from transformers import AutoTokenizer
-
-import requests
-from peewee import JOIN
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from peft import PeftModel
+from peewee import JOIN, EXCLUDED
 from tqdm import tqdm
 
 from judging_the_intent import __version__
+from judging_the_intent.util.prompter import Prompter
 from judging_the_intent.db.schema import (
     Annotation,
     Config,
@@ -17,47 +18,89 @@ from judging_the_intent.db.schema import (
     Query,
     Triple,
 )
-from judging_the_intent.util.dna_prompt import build_prompt
-from judging_the_intent.util.tokenizers import tokenizer_lookup
-from judging_the_intent.util.parsers import Parser, Phi4Parser
 
 LOGGER = logging.getLogger(__file__)
-OLLAMA_API = f"{os.environ.get('OLLAMA_HOST', 'http://localhost:11434')}/api"
 HF_ACCESS_TOKEN = os.environ.get("HUGGINGFACE_ACCESS_TOKEN")
+HF_CACHE_DIR = os.environ.get("CACHE_DIR")
 
 
 class Annotator:
-    """Wrapper class allowing for inference calls to Ollama models using the DNA prompt format.
+    """Wrapper class allowing for inference calls to HuggingFace models using the DNA or Binary prompt formats.
 
-    :param model: Name of the Ollama model to be used in inference.
+    :param model: Name of the HuggingFace model to be used in inference.
     """
 
-    def __init__(self, model: str, parser: Parser) -> None:
-        self._model = model
-        self._parser = parser
+    def __init__(self, model: str, prompter: Prompter, batch_size: int, max_input_length: int, max_doc_length: int) -> None:
+        self._model_name = model
+        self._model = self._configure_model()
+        self._tokenizer = self._configure_tokenizer()
+        self._prompter = prompter
         self._datasets = None
+        self._batch_size = batch_size
+        self._max_input_length = max_input_length
+        self._max_doc_length = max_doc_length
+        LOGGER.info(f"\tAnnotator initialized with {model}.")
+
+    def load_checkpoint(self, checkpoint_path: str):
+        self._model = PeftModel.from_pretrained(self._model, checkpoint_path)
+        LOGGER.info(f"\tCheckpoint for {self._model_name} loaded.")
 
     def set_dataset(self, dataset_names: list) -> None:
         self._datasets = dataset_names
 
-    def run(self) -> None:
-        """Run the annotation.
-
-        Retrieves triples without annotations from the database, annotates them using the LLM,
-        and writes the results back into the database.
+    def _build_prompts(self, batch: list) -> list:
         """
-        config, created = Config.get_or_create(
-            model_name=self._model, version=__version__
-        )
-        if created:
-            LOGGER.info(
-                "model %s (version %s) not found in DB, creating",
-                self._model,
-                __version__,
-            )
-        else:
-            LOGGER.info("found model %s (version %s) in DB", self._model, __version__)
+        Method to take in a batch of query-doc pairs or query-intent-triples and build prompts prepared for the LLM
+        :param batch: List of dicts containing the representations of the retrieved Triple objects (and related joins)
+                      from the database.
+        """
+        if "intent" in self._prompter.prompt_style:
 
+            samples = [self._prompter.template.format(demonstrations="", question=utd["query_text"],
+                                                      intent=utd["intent_text"],
+                                                      passage=utd["document_text"][:self._max_doc_length])
+                       for utd in batch]
+        else:
+            samples = [self._prompter.template.format(demonstrations="", question=utd["query_text"],
+                                                      passage=utd["document_text"][:self._max_doc_length])
+                       for utd in batch]
+        return samples
+
+
+    def _configure_tokenizer(self):
+        tokenizer = AutoTokenizer.from_pretrained(self._model_name, padding_side="left",
+                                                  cache_dir=HF_CACHE_DIR, token=HF_ACCESS_TOKEN)
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = "left"
+        return tokenizer
+
+    def _configure_model(self):
+        model = AutoModelForCausalLM.from_pretrained(
+            self._model_name,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+            cache_dir=HF_CACHE_DIR,
+            quantization_config=BitsAndBytesConfig(
+                load_in_4bit=True,
+                load_in_8bit=False,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+            )
+        )
+
+        model.config.torch_dtype = torch.bfloat16
+        model.config.pad_token_id = model.config.eos_token_id
+        model.generation_config.pad_token_id = model.generation_config.eos_token_id
+
+        if isinstance(model.generation_config.eos_token_id, list):
+            model.generation_config.pad_token_id = model.generation_config.eos_token_id[0]  # llama 3 128001
+        else:
+            model.generation_config.pad_token_id = model.generation_config.eos_token_id  # llama 3 128001
+
+        model.eval()
+        return model
+
+    def _load_unannotated_triples(self, config: Config) -> peewee.ModelSelect:
         # If there are datasets specified, then filter the unannotated triples specifically for those datasets
         if self._datasets:
             queries = (
@@ -101,92 +144,105 @@ class Annotator:
             )
             .join(Document, on=unannotated_triples_cte.c.document_id == Document.d_id)
         )
+        return unannotated_triples
+
+    def run(self) -> None:
+        """Run the annotation.
+
+        Retrieves triples without annotations from the database, annotates them using the LLM,
+        and writes the results back into the database.
+        """
+        config, created = Config.get_or_create(
+            model_name=self._model_name, version=__version__
+        )
+        if created:
+            LOGGER.info(
+                "\tmodel %s (version %s) not found in DB, creating",
+                self._model_name,
+                __version__,
+            )
+        else:
+            LOGGER.info("\tfound model %s (version %s) in DB", self._model_name, __version__)
+
+        unannotated_triples = self._load_unannotated_triples(config)
         count = unannotated_triples.count()
-        LOGGER.info("%s triples left to annotate", count)
+        unannotated_triples_dicts = unannotated_triples.dicts()
+        LOGGER.info("\t%s triples left to annotate", count)
 
-        for item in tqdm(unannotated_triples.dicts(), total=count):
-            data = {
-                "prompt": build_prompt(
-                    item["query_text"], item["intent_text"], item["document_text"],
-                    version="verbose"
-                ),
-                "model": self._model,
-                "stream": False,
-                "format": {
-                    "type": "object",
-                    "properties": {
-                        "Relevance Score": {
-                            "type": "integer"
-                        },
-                        "Explanation": {
-                            "type": "string"
-                        }
-                    },
-                    "required": [
-                        "Relevance Score",
-                        "Explanation"
-                    ]
-                }
-            }
+        # Configure batching of dataset
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        it = range(0, count, self._batch_size)
 
-            # Before passing to the API, check whether the built prompt will be truncated based on the defined context window
-            context_length = int(os.environ.get("OLLAMA_CONTEXT_LENGTH", 4096))
-            model_id = tokenizer_lookup(self._model)
-            tokenizer = AutoTokenizer.from_pretrained(model_id, token=HF_ACCESS_TOKEN)
-            tokenized_prompt = tokenizer.encode(data["prompt"])
-            prompt_length = len(tokenized_prompt)
-            if prompt_length > context_length:
-                LOGGER.warning(f"Triple {item['id']} exceeded context length {context_length}.")
+        for start_idx in tqdm(it):
+            batch = slice(start_idx, start_idx + self._batch_size)
+            batched_triples = unannotated_triples_dicts[batch]
+            samples = self._build_prompts(batched_triples)
 
-            result, error, explanation = None, None, None
-            try:
-                api_response = requests.post(
-                    url=f"{OLLAMA_API}/generate",
-                    data=json.dumps(data),
-                    headers={"Content-Type": "application/json"},
+            # padding=True or 'longest': Pad to the longest sequence in the batch (or no padding if only a single sequence is provided).
+            encoded = self._tokenizer(samples, padding=True, truncation=True,
+                                      max_length=self._max_input_length, return_tensors='pt')
+            encoded = {k: v.to(device) for k, v in encoded.items()}
+
+            with torch.inference_mode():
+                predictions = self._model.generate(
+                    input_ids=encoded['input_ids'],
+                    attention_mask=encoded['attention_mask'],
+                    max_new_tokens=4,
                 )
-                result, explanation = self._parser(json.loads(api_response.text)["response"])
-            except Exception as e:
-                LOGGER.error("error while annotating triple %s", item["id"])
-                error = repr(e)
-            finally:
-                # this will add or update an annotation
-                Annotation.insert(
-                    triple=item["id"],
-                    config=config.id,
-                    result=result,
-                    error=error,
-                    truncated=True if prompt_length >= context_length else False,
-                    explanation=explanation,
-                ).on_conflict(
-                    conflict_target=[Annotation.triple, Annotation.config],
-                    preserve=[Annotation.triple, Annotation.config],
-                    update={Annotation.result: result, Annotation.error: error, Annotation.explanation: explanation},
-                ).execute()
+
+            predictions = self._tokenizer.batch_decode(predictions, skip_special_tokens=True,
+                                                       clean_up_tokenization_spaces=True)
+
+            annotations_for_db = []
+            for pos, item in enumerate(samples):
+                prediction = predictions[pos].split(self._prompter.splitter)[-1].strip()
+                annotation_for_db = {
+                    "triple": batched_triples[pos]["id"],
+                    "config": config.id,
+                    "result": self._prompter.parser(prediction),
+                    "error": None,
+                    "truncated": True, # all of them are truncated to 1400 characters in the document
+                    "explanation": None # Explanations not implemented yet
+                }
+                annotations_for_db.append(annotation_for_db)
+
+            Annotation.insert_many(annotations_for_db).on_conflict(
+                conflict_target=[Annotation.triple, Annotation.config],
+                preserve=[Annotation.triple, Annotation.config],
+                update={Annotation.result: EXCLUDED.result, Annotation.error: EXCLUDED.error, Annotation.explanation: EXCLUDED.explanation},
+            ).execute()
 
 
 def main():
     ap = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     ap.add_argument(
-        "--models", required=True, nargs="+", help="Ollama model identifiers."
+        "--model", required=True,
+        help="HuggingFace model identifier. May require configuration of HF access token."
     )
-    ap.add_argument("--dataset", nargs="+", required=False, help="IR Datasets dataset identifiers.")
+    ap.add_argument("--datasets", nargs="+", required=False, help="IR Datasets dataset identifiers.")
+    ap.add_argument("--prompt_style", required=True, type=str,
+                    help="Define the prompt style to use in this annotation run.")
+    ap.add_argument("--checkpoint_path", type=str, help="Path to checkpoint directory.", default=None)
+    ap.add_argument("--batch_size", type=int, help="Batch size.", default=32)
+    ap.add_argument("--max_input_length", type=int, help="Max input length.", default=2048)
+    # Default is set to avoid OOM on GPU
+    ap.add_argument("--max_doc_length", type=int, help="Max document length.", default=1400)
     args = ap.parse_args()
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, format='{levelname} - {asctime} - {module} - {message}', style="{",
+                        datefmt="%Y-%m-%d %H:%M")
 
-    # available parsers in order of preference
-    parsers = [Phi4Parser(), Parser()]
+    # Define the Prompter to be attached to the Annotator
+    prompter = Prompter(args.prompt_style)
 
-    for model in args.models:
-        for parser in parsers:
-            if parser.matches(model):
-                LOGGER.info("processing %s using %s", model, parser.__class__.__name__)
-                annotator = Annotator(model, parser)
-                if args.dataset:
-                    annotator.set_dataset(args.dataset)
-                annotator.run()
-                break
+    LOGGER.info(f"\nInitializing annotation run with config:\n\tMODEL:\t{args.model}\n\tCHECKPOINT:\t"
+                f"{('true' if args.checkpoint_path else 'false')}\n\tPROMPT:\t{args.prompt_style}")
+    annotator = Annotator(args.model, prompter, args.batch_size, args.max_input_length, args.max_doc_length)
+    if args.checkpoint_path:
+        annotator.load_checkpoint(args.checkpoint_path)
+    if args.datasets:
+        annotator.set_dataset(args.datasets)
+    annotator.run()
 
 
 if __name__ == "__main__":
