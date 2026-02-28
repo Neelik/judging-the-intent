@@ -7,6 +7,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import PeftModel
 from peewee import JOIN, EXCLUDED
 from tqdm import tqdm
+from operator import or_
+from functools import reduce
 
 from judging_the_intent import __version__
 from judging_the_intent.util.prompter import Prompter
@@ -39,10 +41,12 @@ class Annotator:
         self._batch_size = batch_size
         self._max_input_length = max_input_length
         self._max_doc_length = max_doc_length
+        self._checkpoint_loaded = False
         LOGGER.info(f"\tAnnotator initialized with {model}.")
 
     def load_checkpoint(self, checkpoint_path: str):
         self._model = PeftModel.from_pretrained(self._model, checkpoint_path)
+        self._checkpoint_loaded = True
         LOGGER.info(f"\tCheckpoint for {self._model_name} loaded.")
 
     def set_dataset(self, dataset_names: list) -> None:
@@ -103,27 +107,51 @@ class Annotator:
     def _load_unannotated_triples(self, config: Config) -> peewee.ModelSelect:
         # If there are datasets specified, then filter the unannotated triples specifically for those datasets
         if self._datasets:
+            # Construct contains queries for each dataset to deal with overlaps
+            conditions = []
+            for dataset in self._datasets:
+                col = getattr(Query, "dataset_name")
+                conditions.append(col.contains(dataset))
+
             queries = (
                 Query.select()
-                .where(Query.dataset_name.in_(self._datasets))
+                .where((Query.dataset_name.in_(self._datasets)) | (reduce(or_, conditions)))
             )
         else:
             queries = Query.select()
 
-        # select all triples except the ones that are already annotated
-        # this includes annotation with errors
-        unannotated_triples_cte = (
-            Triple.select()
-            .where(Triple.query.in_(queries))
-            .except_(
+        if "intent" in  self._prompter.prompt_style:
+            # select all triples except the ones that are already annotated
+            # this includes annotation with errors
+            unannotated_triples_cte = (
                 Triple.select()
-                .join(Annotation)
-                .join(Config)
-                .where(Config.id == config.id)
-                .where(Annotation.result.is_null(False))
+                .where(Triple.intent.is_null(False))
+                .where(Triple.query.in_(queries))
+                .except_(
+                    Triple.select()
+                    .join(Annotation)
+                    .join(Config)
+                    .where(Config.id == config.id)
+                    .where(Annotation.result.is_null(False))
+                )
+                .cte("unannotated_triples")
             )
-            .cte("unannotated_triples")
-        )
+        else:
+            # select all triples except the ones that are already annotated
+            # this includes annotation with errors
+            unannotated_triples_cte = (
+                Triple.select()
+                .where(Triple.intent.is_null())
+                .where(Triple.query.in_(queries))
+                .except_(
+                    Triple.select()
+                    .join(Annotation)
+                    .join(Config)
+                    .where(Config.id == config.id)
+                    .where(Annotation.result.is_null(False))
+                )
+                .cte("unannotated_triples")
+            )
 
         # take the triples above and join them with query, intent, document texts
         unannotated_triples = (
@@ -153,7 +181,8 @@ class Annotator:
         and writes the results back into the database.
         """
         config, created = Config.get_or_create(
-            model_name=self._model_name, version=__version__
+            model_name=self._model_name, version=__version__, fine_tuned=self._checkpoint_loaded,
+            intent_aware=True if "intent" in self._prompter.prompt_style else False
         )
         if created:
             LOGGER.info(
@@ -193,9 +222,17 @@ class Annotator:
             predictions = self._tokenizer.batch_decode(predictions, skip_special_tokens=True,
                                                        clean_up_tokenization_spaces=True)
 
+            # Move predictions from GPU to CPU for parsing and database writing, free up GPU RAM
+            if predictions.get_device() > -1:
+                predictions_cpu = predictions.cpu()
+                del predictions
+                torch.cuda.empty_cache()
+            else:
+                predictions_cpu = predictions
+
             annotations_for_db = []
             for pos, item in enumerate(samples):
-                prediction = predictions[pos].split(self._prompter.splitter)[-1].strip()
+                prediction = predictions_cpu[pos].split(self._prompter.splitter)[-1].strip()
                 annotation_for_db = {
                     "triple": batched_triples[pos]["id"],
                     "config": config.id,
@@ -223,7 +260,7 @@ def main():
     ap.add_argument("--prompt_style", required=True, type=str,
                     help="Define the prompt style to use in this annotation run.")
     ap.add_argument("--checkpoint_path", type=str, help="Path to checkpoint directory.", default=None)
-    ap.add_argument("--batch_size", type=int, help="Batch size.", default=32)
+    ap.add_argument("--batch_size", type=int, help="Batch size.", default=16)
     ap.add_argument("--max_input_length", type=int, help="Max input length.", default=2048)
     # Default is set to avoid OOM on GPU
     ap.add_argument("--max_doc_length", type=int, help="Max document length.", default=1400)

@@ -7,6 +7,7 @@ from tqdm import tqdm
 import ir_datasets
 from ir_datasets_subsample import register_subsamples
 
+from peewee import fn
 from judging_the_intent.db import DATABASE
 from judging_the_intent.db.schema import (
     Annotation,
@@ -42,42 +43,53 @@ def main():
         DATABASE.create_tables([Query, Intent, Document, Triple, Config, Annotation])
 
     for dataset_name in args.datasets:
-        LOGGER.info("processing %s", dataset_name)
-
+        LOGGER.info("\tprocessing %s", dataset_name)
         try:
-            dataset = ir_datasets.load(dataset_name)
-            docs_store = dataset.docs_store()
+            if "dl-mia" in dataset_name:
+                # Need to load msmarco-passage-v2
+                dataset = ir_datasets.load("msmarco-passage-v2")
+                docs_store = dataset.docs_store()
+            else:
+                dataset = ir_datasets.load(dataset_name)
+                docs_store = dataset.docs_store()
         except Exception as e:
             LOGGER.exception("failed to load dataset %s", dataset_name)
             raise e
         qd_pairs = set()
 
         # Create the special branch for ClueWeb subsample
-        if "clueweb" in dataset_name:
-            with open(
-                args.data_dir / f"{dataset_name.replace('/', '-')}-queries.tsv",
-                encoding="utf-8",
-                newline="",
-            ) as fp:
-                for q_id, q_text in csv.reader(fp, delimiter="\t"):
-                    Query.create(q_id=q_id, dataset_name=dataset_name, text=q_text)
+        if "clueweb" in dataset_name or "dl-mia" in dataset_name:
+            if "clueweb" in dataset_name:
+                dataset_name_split = dataset_name.split("/")
+                dataset_top_level_name = dataset_name_split[1]
+                dataset_track = dataset_name_split[-1]
+                data_path = Path(args.data_dir).joinpath(dataset_top_level_name, dataset_track)
+                query_path = Path(data_path).joinpath("queries", f"{dataset_name.replace('/', '-')}-queries.tsv")
+                qrels_path = Path(data_path).joinpath("qrels", f"{dataset_name.replace('/', '-')}-filtered-qrels.tsv")
+                intent_path = Path(data_path).joinpath("intent", f"{dataset_name.replace('/', '-')}-qid-iid-intent.tsv")
+            else: # DL-MIA branch
+                data_path = Path(args.data_dir).joinpath(dataset_name)
+                query_path = Path(data_path).joinpath("queries", f"{dataset_name}.queries.tsv")
+                intent_path = Path(data_path).joinpath("intent", f"{dataset_name}.intents.tsv")
+                qrels_path = Path(data_path).joinpath("qrels", f"{dataset_name}.qid_iid_qrel.txt")
 
-            with open(
-                args.data_dir / f"{dataset_name.replace('/', '-')}-qid-iid-intent.tsv",
-                encoding="utf-8",
-                newline="",
-            ) as fp:
-                for q_id, i_id, i_text in csv.reader(fp, delimiter="\t"):
+            # Load the Queries
+            with open(str(query_path), encoding="utf-8", newline="", ) as fp:
+                for q_id, q_text in tqdm(csv.reader(fp, delimiter="\t"), desc=">> Inserting Queries..."):
+                    Query.insert(q_id=q_id, dataset_name=dataset_name, text=q_text).on_conflict(
+                        conflict_target=[Query.q_id], preserve=[Query.q_id],
+                        update={Query.dataset_name: fn.CONCAT(Query.dataset_name, f", {dataset_name}")},
+                        where=(~Query.dataset_name.contains(dataset_name))
+                    ).execute()
+
+            # Load the Intents
+            with open(str(intent_path), encoding="utf-8", newline="", ) as fp:
+                for q_id, i_id, i_text in tqdm(csv.reader(fp, delimiter="\t"), desc=">> Inserting Intents..."):
                     Intent.create(i_id=i_id, query=q_id, text=i_text)
 
-            with open(
-                args.data_dir
-                / "qrels"
-                / f"{dataset_name.replace('/', '-')}-filtered-qrels.tsv",
-                encoding="utf-8",
-                newline="",
-            ) as fp:
-                for q_id, i_id, d_id, rel in csv.reader(fp, delimiter="\t"):
+            delim = " " if "dl-mia" in dataset_name else "\t"
+            with open(str(qrels_path), encoding="utf-8", newline="") as fp:
+                for q_id, i_id, d_id, rel in csv.reader(fp, delimiter=delim):
                     # QRels should be filtered already
                     try:
                         assert int(rel) >= 0
@@ -109,7 +121,7 @@ def main():
                 queries.add(query.query_id)
                 Query.insert(q_id=query.query_id, dataset_name=dataset_name, text=query.text).on_conflict_ignore().execute()
             dataset_top_level_name, dataset_track = dataset_name.split("/")
-            filtered_qrels_directory_path = Path(args.data_dir).joinpath(f"{dataset_name}", "qrels")
+            filtered_qrels_directory_path = Path(args.data_dir).joinpath(dataset_top_level_name, dataset_track, "qrels")
             filtered_qrels_directory_path.mkdir(parents=True, exist_ok=True)
             with open(str(filtered_qrels_directory_path.joinpath(f"{dataset_track}-filtered-qrels.tsv")),
                 encoding="utf-8",
