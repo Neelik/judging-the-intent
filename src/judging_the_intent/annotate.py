@@ -182,7 +182,7 @@ class Annotator:
         """
         config, created = Config.get_or_create(
             model_name=self._model_name, version=__version__, fine_tuned=self._checkpoint_loaded,
-            intent_aware=True if "intent" in self._prompter.prompt_style else False
+            with_intent=True if "intent" in self._prompter.prompt_style else False
         )
         if created:
             LOGGER.info(
@@ -222,17 +222,9 @@ class Annotator:
             predictions = self._tokenizer.batch_decode(predictions, skip_special_tokens=True,
                                                        clean_up_tokenization_spaces=True)
 
-            # Move predictions from GPU to CPU for parsing and database writing, free up GPU RAM
-            if predictions.get_device() > -1:
-                predictions_cpu = predictions.cpu()
-                del predictions
-                torch.cuda.empty_cache()
-            else:
-                predictions_cpu = predictions
-
             annotations_for_db = []
             for pos, item in enumerate(samples):
-                prediction = predictions_cpu[pos].split(self._prompter.splitter)[-1].strip()
+                prediction = predictions[pos].split(self._prompter.splitter)[-1].strip()
                 annotation_for_db = {
                     "triple": batched_triples[pos]["id"],
                     "config": config.id,
