@@ -23,6 +23,9 @@ class Query(BaseModel):
     dataset_name = CharField()
     text = TextField()
 
+    class Meta:
+        indexes = ((("q_id", "dataset_name"), True),)
+
 
 class Intent(BaseModel):
     i_id = CharField()
@@ -44,9 +47,11 @@ class Triple(BaseModel):
 class Config(BaseModel):
     model_name = CharField()
     version = CharField()
+    fine_tuned = BooleanField(default=True)
+    with_intent = BooleanField(default=False)
 
     class Meta:
-        indexes = ((("model_name", "version"), True),)
+        indexes = ((("model_name", "version", "fine_tuned", "with_intent"), True),)
 
 
 class Annotation(BaseModel):
