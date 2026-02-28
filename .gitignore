@@ -177,6 +177,7 @@ cython_debug/
 .idea/
 
 # Project specific stuff
+.python-version
 src/judging_the_intent/util/*.sh
 out.tsv
 trec-web/*
@@ -187,6 +188,8 @@ ClueWeb/clueweb09/*
 ClueWeb/clueweb12/*
 *.db
 *.sql
+temp*.py
+bash_scripts/
 
 # Softlinks to external server storage locations
 checkpoint
