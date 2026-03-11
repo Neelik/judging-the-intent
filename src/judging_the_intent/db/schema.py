@@ -18,9 +18,13 @@ class BaseModel(Model):
         database = DATABASE
 
 
+class Dataset(BaseModel):
+    name = CharField(primary_key=True)
+
+
 class Query(BaseModel):
-    q_id = CharField(primary_key=True)
-    dataset_name = CharField()
+    q_id = CharField()
+    dataset_name = ForeignKeyField(Dataset, backref="queries")
     text = TextField()
 
     class Meta:
@@ -49,9 +53,10 @@ class Config(BaseModel):
     version = CharField()
     fine_tuned = BooleanField(default=True)
     with_intent = BooleanField(default=False)
+    prompt_style = CharField(choices=["human", "human-intent", "binary", "binary-intent", "dna", "dna-intent"], default="binary")
 
     class Meta:
-        indexes = ((("model_name", "version", "fine_tuned", "with_intent"), True),)
+        indexes = ((("model_name", "version", "fine_tuned", "with_intent", "prompt_style"), True),)
 
 
 class Annotation(BaseModel):
