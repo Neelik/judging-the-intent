@@ -7,14 +7,14 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import PeftModel
 from peewee import JOIN, EXCLUDED
 from tqdm import tqdm
-from operator import or_
-from functools import reduce
 
 from judging_the_intent import __version__
+from judging_the_intent.util.human_annotation import load_qrels_as_human_annotations
 from judging_the_intent.util.prompter import Prompter
 from judging_the_intent.db.schema import (
     Annotation,
     Config,
+    Dataset,
     Document,
     Intent,
     Query,
@@ -107,15 +107,13 @@ class Annotator:
     def _load_unannotated_triples(self, config: Config) -> peewee.ModelSelect:
         # If there are datasets specified, then filter the unannotated triples specifically for those datasets
         if self._datasets:
-            # Construct contains queries for each dataset to deal with overlaps
-            conditions = []
-            for dataset in self._datasets:
-                col = getattr(Query, "dataset_name")
-                conditions.append(col.contains(dataset))
-
+            datasets = (
+                Dataset.select()
+                .where(Dataset.name.in_(self._datasets))
+            )
             queries = (
                 Query.select()
-                .where((Query.dataset_name.in_(self._datasets)) | (reduce(or_, conditions)))
+                .where(Query.dataset_name_id.in_(datasets))
             )
         else:
             queries = Query.select()
@@ -164,7 +162,7 @@ class Annotator:
                 Intent.text.alias("intent_text"),
                 Document.text.alias("document_text"),
             )
-            .join(Query, on=unannotated_triples_cte.c.query_id == Query.q_id)
+            .join(Query, on=unannotated_triples_cte.c.query_id == Query.id)
             .join(
                 Intent,
                 JOIN.LEFT_OUTER,
@@ -182,7 +180,8 @@ class Annotator:
         """
         config, created = Config.get_or_create(
             model_name=self._model_name, version=__version__, fine_tuned=self._checkpoint_loaded,
-            with_intent=True if "intent" in self._prompter.prompt_style else False
+            with_intent=True if "intent" in self._prompter.prompt_style else False,
+            prompt_style=self._prompter.prompt_style,
         )
         if created:
             LOGGER.info(
@@ -261,17 +260,34 @@ def main():
     logging.basicConfig(level=logging.INFO, format='{levelname} - {asctime} - {module} - {message}', style="{",
                         datefmt="%Y-%m-%d %H:%M")
 
-    # Define the Prompter to be attached to the Annotator
-    prompter = Prompter(args.prompt_style)
+    if args.model == "human":
+        LOGGER.info(f"\nInitializing annotation run with config:\n\tMODEL:\t{args.model}\n\tCHECKPOINT:\t"
+                    f"{('true' if args.checkpoint_path else 'false')}\n\tPROMPT:\t{args.prompt_style}")
+        try:
+            assert args.prompt_style == "human" or args.prompt_style == "human-intent"
+            for dataset in args.datasets:
+                if "intent" in args.prompt_style:
+                    load_qrels_as_human_annotations(dataset, intent_aware=True)
+                else:
+                    # Skip trec-web for non-intent version as we do not have those qrels
+                    if "clueweb" in dataset:
+                        continue
+                    load_qrels_as_human_annotations(dataset)
+        except AssertionError:
+            LOGGER.error(f"Invalid prompt style: {args.prompt_style} for model {args.model}. Only the 'human' prompt style is supported.")
 
-    LOGGER.info(f"\nInitializing annotation run with config:\n\tMODEL:\t{args.model}\n\tCHECKPOINT:\t"
-                f"{('true' if args.checkpoint_path else 'false')}\n\tPROMPT:\t{args.prompt_style}")
-    annotator = Annotator(args.model, prompter, args.batch_size, args.max_input_length, args.max_doc_length)
-    if args.checkpoint_path:
-        annotator.load_checkpoint(args.checkpoint_path)
-    if args.datasets:
-        annotator.set_dataset(args.datasets)
-    annotator.run()
+    else:
+        # Define the Prompter to be attached to the Annotator
+        prompter = Prompter(args.prompt_style)
+
+        LOGGER.info(f"\nInitializing annotation run with config:\n\tMODEL:\t{args.model}\n\tCHECKPOINT:\t"
+                    f"{('true' if args.checkpoint_path else 'false')}\n\tPROMPT:\t{args.prompt_style}")
+        annotator = Annotator(args.model, prompter, args.batch_size, args.max_input_length, args.max_doc_length)
+        if args.checkpoint_path:
+            annotator.load_checkpoint(args.checkpoint_path)
+        if args.datasets:
+            annotator.set_dataset(args.datasets)
+        annotator.run()
 
 
 if __name__ == "__main__":
