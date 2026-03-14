@@ -269,9 +269,6 @@ def main():
                 if "intent" in args.prompt_style:
                     load_qrels_as_human_annotations(dataset, intent_aware=True)
                 else:
-                    # Skip trec-web for non-intent version as we do not have those qrels
-                    if "clueweb" in dataset:
-                        continue
                     load_qrels_as_human_annotations(dataset)
         except AssertionError:
             LOGGER.error(f"Invalid prompt style: {args.prompt_style} for model {args.model}. Only the 'human' prompt style is supported.")

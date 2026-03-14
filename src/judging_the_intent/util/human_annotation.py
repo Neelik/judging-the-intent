@@ -1,7 +1,7 @@
 import csv
 import ir_datasets
 from ir_datasets_subsample import register_subsamples
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 from pathlib import Path
 
 from peewee import IntegrityError
@@ -80,8 +80,21 @@ def load_qrels_as_human_annotations(dataset_identifier, intent_aware=False):
         # Create a list of named tuples that emulate ir_datasets structure
         original_qrels = []
         with open(qrels_path, "r") as qrels_file:
-            for q_id, i_id, d_id, rel in csv.reader(qrels_file, delimiter="\t"):
-                original_qrels.append(ClueWebQrel(q_id, i_id, d_id, rel))
+            if not intent_aware:
+                # Find the highest relevance score for a given query-doc pair, and save only that
+                current_pair = dict()
+                for q_id, i_id, d_id, rel in csv.reader(qrels_file, delimiter="\t"):
+                    if f"{q_id}_{d_id}" in current_pair:
+                        current_pair[f"{q_id}#{d_id}"] = max(current_pair[f"{q_id}#{d_id}"], rel)
+                    else:
+                        current_pair[f"{q_id}#{d_id}"] = rel
+                # Create the Qrel objects for the q-d pairs found
+                for qrel in current_pair.keys():
+                    q_id, d_id = qrel.split("#")
+                    original_qrels.append(ClueWebQrel(q_id, None, d_id, current_pair[qrel]))
+            else:
+                for q_id, i_id, d_id, rel in csv.reader(qrels_file, delimiter="\t"):
+                    original_qrels.append(ClueWebQrel(q_id, i_id, d_id, rel))
 
         document_collections.append(original_qrels)
 
