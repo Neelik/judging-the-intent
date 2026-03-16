@@ -165,13 +165,14 @@ class IntentGenerator:
         dataset_top_level_name = dataset_name_split[1]
         dataset_track = dataset_name_split[-1]
         output_path = Path(__file__).parent.parent.parent.joinpath("datasets", dataset_top_level_name,
-                                                                   dataset_track)
+                                                                   dataset_track, "intent")
         output_filename = f"{int(datetime.now().timestamp())}_{self._model_name.replace('/', '-')}_intents.tsv"
         intents_frame = pd.DataFrame.from_dict(query_intents.items())
         intents_frame.columns = ["query_id", "intent_text"]
         intents_frame = intents_frame.explode("intent_text")
         # Keep headers on this because the column names are the query ids
-        intents_frame.to_csv(Path(output_path).joinpath("intent", output_filename), index=False, sep="\t")
+        intents_frame.to_csv(Path(output_path).joinpath(output_filename), index=False, sep="\t")
+        LOGGER.info(f"\tSaved intents for {dataset_track} to {Path(output_path).joinpath(output_filename)}")
 
 
 def main():
@@ -187,6 +188,7 @@ def main():
     prompter = IntentGenerationPrompter(prompt_style="generate-intent")
 
     for dataset in args.datasets:
+        LOGGER.info(f"\tGenerating intents for {dataset}...")
         generator = IntentGenerator(model=args.model, dataset=dataset, prompter=prompter)
         generator.run()
 
