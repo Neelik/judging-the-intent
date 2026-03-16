@@ -1,3 +1,4 @@
+import re
 import logging
 LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +32,18 @@ def _parser_digit(text):
         text_ = _extract_first_digit(text)
         LOGGER.debug(f"PARSED:\t\t{text_}")
     return text_
+
+def _parse_intents(text: str) -> list:
+    LOGGER.debug(f"PARSING:\t\t{text}")
+    # There's a variation where the intents come first, then the documents
+    # And there's a variation where each item is an intent,document list pair in a numbered list
+    split_on_intentions = text.split("Intentions::")[-1]
+    split_on_line_break = split_on_intentions.split("\n")[1:]
+    intents_list = [item.split("Document_List::")[0].strip().replace(",", "").replace(". ", "")
+                    for item in split_on_line_break]
+    cleaned_intents = [re.sub(r'\d+', '', text) for text in intents_list]
+
+    return cleaned_intents
 
 
 class Prompter:
@@ -102,3 +115,16 @@ class Prompter:
             self.splitter = "Score:"
             self.labels = ["0", "1", "2", "3", "4"]
             self.parser = _parser_digit
+
+
+class IntentGenerationPrompter:
+    def __init__(self, prompt_style: str):
+        self._allowed_styles = ["generate-intent"]
+        if prompt_style in self._allowed_styles:
+            self.prompt_style = prompt_style
+        else:
+            raise NotImplemented(f"Prompt style {prompt_style} is not supported.")
+
+        if self.prompt_style == "generate-intent":
+            self.template = """A person wants to determine distinct intentions behind a query. Query: {query}. Give five descriptive (max. 15 words) distinct intentions which are easy to understand. Consider all documents in your response. Response should be in the format: Intentions:: <intention>, Document_List:: <list of documents with the intention>.\n\nDocuments: {documents}"""
+            self.parser = _parse_intents

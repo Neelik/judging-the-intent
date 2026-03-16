@@ -32,7 +32,8 @@ class Annotator:
     :param model: Name of the HuggingFace model to be used in inference.
     """
 
-    def __init__(self, model: str, prompter: Prompter, batch_size: int, max_input_length: int, max_doc_length: int) -> None:
+    def __init__(self, model: str, prompter: Prompter, batch_size: int, max_input_length: int, max_doc_length: int,
+                 intent_source: str) -> None:
         self._model_name = model
         self._model = self._configure_model()
         self._tokenizer = self._configure_tokenizer()
@@ -42,6 +43,7 @@ class Annotator:
         self._max_input_length = max_input_length
         self._max_doc_length = max_doc_length
         self._checkpoint_loaded = False
+        self._intent_source = intent_source
         LOGGER.info(f"\tAnnotator initialized with {model}.")
 
     def load_checkpoint(self, checkpoint_path: str):
@@ -122,15 +124,23 @@ class Annotator:
             # select all triples except the ones that are already annotated
             # this includes annotation with errors
             unannotated_triples_cte = (
-                Triple.select()
-                .where(Triple.intent.is_null(False))
-                .where(Triple.query.in_(queries))
+                Triple.select(
+                    Triple,
+                    Intent.source.alias("intent_source")
+                )
+                .where((Triple.intent.is_null(False)) & (Triple.query.in_(queries)))
+                .join(Intent, on=(Triple.intent == Intent.id))
+                .where(Intent.source == self._intent_source)
                 .except_(
-                    Triple.select()
+                    Triple.select(
+                        Triple,
+                        Intent.source.alias("intent_source"),
+                    )
                     .join(Annotation)
                     .join(Config)
-                    .where(Config.id == config.id)
-                    .where(Annotation.result.is_null(False))
+                    .where((Config.id == config.id) & (Annotation.result.is_null(False)))
+                    .join(Intent, on=(Triple.intent == Intent.id))
+                    .where(Intent.source == self._intent_source)
                 )
                 .cte("unannotated_triples")
             )
@@ -255,6 +265,7 @@ def main():
     ap.add_argument("--max_input_length", type=int, help="Max input length.", default=2048)
     # Default is set to avoid OOM on GPU
     ap.add_argument("--max_doc_length", type=int, help="Max document length.", default=1400)
+    ap.add_argument("--intent_source", type=str, choices=("human", "generated"), help="Intent source identifier.")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='{levelname} - {asctime} - {module} - {message}', style="{",
@@ -269,9 +280,6 @@ def main():
                 if "intent" in args.prompt_style:
                     load_qrels_as_human_annotations(dataset, intent_aware=True)
                 else:
-                    # Skip trec-web for non-intent version as we do not have those qrels
-                    if "clueweb" in dataset:
-                        continue
                     load_qrels_as_human_annotations(dataset)
         except AssertionError:
             LOGGER.error(f"Invalid prompt style: {args.prompt_style} for model {args.model}. Only the 'human' prompt style is supported.")
@@ -282,7 +290,7 @@ def main():
 
         LOGGER.info(f"\nInitializing annotation run with config:\n\tMODEL:\t{args.model}\n\tCHECKPOINT:\t"
                     f"{('true' if args.checkpoint_path else 'false')}\n\tPROMPT:\t{args.prompt_style}")
-        annotator = Annotator(args.model, prompter, args.batch_size, args.max_input_length, args.max_doc_length)
+        annotator = Annotator(args.model, prompter, args.batch_size, args.max_input_length, args.max_doc_length, args.intent_source)
         if args.checkpoint_path:
             annotator.load_checkpoint(args.checkpoint_path)
         if args.datasets:

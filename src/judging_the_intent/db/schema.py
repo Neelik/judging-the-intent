@@ -1,5 +1,5 @@
 import time
-
+from typing import Type
 from peewee import (
     BooleanField,
     CharField,
@@ -35,6 +35,7 @@ class Intent(BaseModel):
     i_id = CharField()
     query = ForeignKeyField(Query, backref="intents")
     text = TextField()
+    source = CharField(default="human")
 
 
 class Document(BaseModel):
