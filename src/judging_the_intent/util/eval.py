@@ -9,6 +9,7 @@ from judging_the_intent.db.schema import (
     Dataset,
     Query,
     Triple,
+    Intent,
 )
 from pathlib import Path
 from typing import Optional
@@ -18,7 +19,8 @@ LOGGER = logging.getLogger(__file__)
 
 class Evaluator:
     def __init__(self, model: str, dataset: str, target_type: str, intent_aware: bool,
-                 checkpointed_model: bool, prompt_style: str, qrels_true_path: Optional[str] = None) -> None:
+                 checkpointed_model: bool, prompt_style: str, qrels_true_path: Optional[str] = None,
+                 intent_source: str = "human") -> None:
         self._model = model
         self._dataset = dataset
         self._qrels_true_path = qrels_true_path
@@ -27,6 +29,7 @@ class Evaluator:
         self._intent_aware = intent_aware
         self._checkpointed_model = checkpointed_model
         self._prompt_style = prompt_style
+        self._intent_source = intent_source
 
     def _get_config(self, human: bool = False) -> Config:
         """
@@ -78,10 +81,15 @@ class Evaluator:
         if self._intent_aware:
             # Get all Triple objects that have ForeignKey relationships to the dataset Query objects, that have Intents
             triples = (
-                Triple.select()
+                Triple.select(
+                    Triple,
+                    Intent.source.alias("intent_source")
+                )
                 .where(Triple.intent.is_null(False))
                 .join(dataset_queries, on=(Triple.query == dataset_queries.c.id))
                 .join_from(Triple, Query)
+                .join(Intent, on=(Triple.intent == Intent.id))
+                .where(Intent.source == self._intent_source)
             )
 
         else:
