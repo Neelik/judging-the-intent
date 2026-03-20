@@ -194,8 +194,7 @@ def load_queries(dataset_identifier, q_iter: Iterable[GenericQuery], q_count: in
 
 def load_intents(dataset_identifier: str, intent_path: Optional[Path] = None) -> bool:
     """
-        Function to load query data into the database. The `intent_path` parameter is ignored if "clueweb" or "dl-mia"
-        are included in the dataset_identifier.
+        Function to load LLM-generated intent data into the database.
 
         :param dataset_identifier: Name of the Dataset
         :param intent_path: Path object giving the filepath to the intents

@@ -2,6 +2,7 @@ import os
 import ir_datasets
 import pandas as pd
 import torch
+import traceback
 from ir_datasets_subsample import register_subsamples
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from collections import defaultdict
@@ -10,12 +11,14 @@ from pathlib import Path
 
 from judging_the_intent import __version__
 from judging_the_intent.util.prompter import IntentGenerationPrompter
+from judging_the_intent.db import DATABASE
 from judging_the_intent.db.schema import (
     Config,
     Dataset,
     Query,
     Triple,
     Document,
+    Intent,
 )
 from peewee import JOIN
 from transformers import (
@@ -41,6 +44,7 @@ class IntentGenerator:
         self._tokenizer = self._configure_tokenizer()
         self._collection = self._build_collection()
         self._prompter = prompter
+        self._batch_size = 16
 
     def _configure_model(self):
         model = AutoModelForCausalLM.from_pretrained(
@@ -92,8 +96,9 @@ class IntentGenerator:
 
         triples = (
             Triple.select(
-                Triple.query_id,
-                Triple.document_id,
+                Triple,
+                # Triple.query_id,
+                # Triple.document_id,
                 Query.text.alias("query_text"),
                 Document.text.alias("document_text"),
             )
@@ -102,10 +107,7 @@ class IntentGenerator:
             .where((Triple.intent.is_null()) & (Triple.query_id.in_(dataset_queries)))
         )
 
-        triples_dicts = triples.dicts()
-        triples_frame = pd.DataFrame(triples_dicts)
-
-        return triples_frame
+        return triples
 
         # collection = defaultdict(list)
         # if self._dataset.has_qrels():
@@ -121,44 +123,58 @@ class IntentGenerator:
         #     LOGGER.warning("No queries available for this dataset")
         #     return []
 
-    def run(self):
-        qids = self._collection["query"].unique()
-        qids_count = qids.shape[0]
+    def _build_prompts(self, batch: list) -> list:
+        messages = []
+        system_role_message = {"role": "system",
+                               "content": "You are an intelligent system and your job is to predict the intention behind the user question given a list of documents."}
+        for query_doc in batch:
+            documents = [query_doc.document[i:i + MAX_DOC_LENGTH]
+                        for i in range(0, len(query_doc.document), MAX_DOC_LENGTH)]
+            filled_prompt = self._prompter.template.format(query=query_doc.query_text,
+                                                           documents=documents)
+            user_role_message = {"role": "user", "content": filled_prompt}
+            query_doc_messages = [
+                system_role_message,
+                user_role_message
+            ]
+            messages.append(query_doc_messages)
 
+        return messages
+
+
+    def run(self):
+        count = self._collection.count()
+        triples_dicts = self._collection.namedtuples()
+        # Configure batching of dataset
+        it = range(0, count, self._batch_size)
         pipe = pipeline(
             task="text-generation",
             model=self._model,
-            tokenizer=self._tokenizer,
+            tokenizer=self._tokenizer
         )
+        if isinstance(self._model.config.eos_token_id, list):
+            pipe.tokenizer.pad_token_id = self._model.config.eos_token_id[0]  # llama 3 128001
+        else:
+            pipe.tokenizer.pad_token_id = self._model.config.eos_token_id  # llama 3 128001
 
-        # TODO ClueWeb is massive documents, how many do we pass to the prompt? For now, three seems to work
+        new_triples = list()
+        for start_idx in tqdm(it):
+            batch = slice(start_idx, start_idx + self._batch_size)
+            batched_triples = triples_dicts[batch]
+            samples = self._build_prompts(batched_triples)
+            outputs = pipe(samples, batch_size=self._batch_size)
+            decoded_outputs = [output[0]["generated_text"][-1] for output in outputs]
 
-        query_intents = defaultdict(list)
-        system_role_message = {"role": "system", "content": "You are an intelligent system and your job is to predict the intention behind the user question given a list of documents."}
-        for qid in tqdm(qids, total=qids_count, desc=">> Generating intents..."):
-            filtered = self._collection[self._collection["query"] == qid]
-            sampled_docs = filtered["document_text"].sample(n=3, random_state=42)
-            documents = "\n".join([doc[:MAX_DOC_LENGTH] for doc in sampled_docs.values])
-            filled_prompt = self._prompter.template.format(query=filtered["query_text"].values[0], documents=documents)
-            user_role_message = {"role": "user", "content": filled_prompt}
-            messages = [
-                system_role_message,
-                user_role_message,
-            ]
-            outputs = pipe(
-                messages,
-                max_new_tokens=256
-            )
+            for pos, item in enumerate(batched_triples):
+                parsed_output = self._prompter.parser(decoded_outputs[pos]["content"])
+                for intent in parsed_output:
+                    with DATABASE.atomic():
+                        # Create the Intent entry
+                        intent_db = Intent.create(i_id=f"gen_{pos}", query=item.query, text=intent, source="generated")
 
-            decoded = outputs[0]["generated_text"][-1]
-            try:
-                intents = self._prompter.parser(decoded["content"])
-                if qid not in query_intents:
-                    query_intents[qid] = intents
-                else:
-                    LOGGER.info(f"\tQuery {qid} already has intents generated, ignoring.")
-            except Exception as e:
-                LOGGER.error(f"Parsing intents for {qid} failed. Generated output\n\n{decoded['content']}")
+                        # Create the Triple entry
+                        triple = Triple.create(intent=intent_db, query_id=item.query, document_id=item.document)
+                        new_triples.append({"triple_id": triple.id, "query_id": triple.query.id, "query_text": triple.query.text, "intent_id": triple.intent.id, "intent_text": triple.intent.text, "document_id": triple.document.id, "document_text": triple.document.text})
 
         # Write the intents to a file for manual inspection
         dataset_name_split = self._dataset_identifier.split("/")
@@ -167,9 +183,7 @@ class IntentGenerator:
         output_path = Path(__file__).parent.parent.parent.joinpath("datasets", dataset_top_level_name,
                                                                    dataset_track, "intent")
         output_filename = f"{int(datetime.now().timestamp())}_{self._model_name.replace('/', '-')}_intents.tsv"
-        intents_frame = pd.DataFrame.from_dict(query_intents.items())
-        intents_frame.columns = ["query_id", "intent_text"]
-        intents_frame = intents_frame.explode("intent_text")
+        intents_frame = pd.DataFrame(new_triples)
         # Keep headers on this because the column names are the query ids
         intents_frame.to_csv(Path(output_path).joinpath(output_filename), index=False, sep="\t")
         LOGGER.info(f"\tSaved intents for {dataset_track} to {Path(output_path).joinpath(output_filename)}")

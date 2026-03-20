@@ -1,4 +1,5 @@
 import re
+import json
 import logging
 LOGGER = logging.getLogger(__name__)
 
@@ -35,15 +36,39 @@ def _parser_digit(text):
 
 def _parse_intents(text: str) -> list:
     LOGGER.debug(f"PARSING:\t\t{text}")
-    # There's a variation where the intents come first, then the documents
-    # And there's a variation where each item is an intent,document list pair in a numbered list
-    split_on_intentions = text.split("Intentions::")[-1]
-    split_on_line_break = split_on_intentions.split("\n")[1:]
-    intents_list = [item.split("Document_List::")[0].strip().replace(",", "").replace(". ", "")
-                    for item in split_on_line_break]
-    cleaned_intents = [re.sub(r'\d+', '', text) for text in intents_list]
 
-    return cleaned_intents
+    # Version where each intent is preceded by the 'Intentions::' substring
+    if text.count("Intentions::") > 1 and "```" not in text:
+        has_intent = [split_text if "Document_List" in split_text else None for split_text in
+                      text.split("Intentions::")]
+        intents_list = [x.strip() for x in has_intent if x is not None]
+        cleaned_intents = [x.split("Document_List::")[0].strip().replace(",", "") for x in intents_list]
+
+    # Version where there is a numbered list following the 'Intentions::' substring
+    elif text.count("Intentions::") == 1:
+        # And there's a variation where each item is an intent,document list pair in a numbered list
+        split_on_intentions = text.split("Intentions::")[-1]
+        split_on_line_break = split_on_intentions.split("\n")[1:]
+        intents_list = [
+            item.split("Document_List::")[0].strip().replace(",", "")
+            .replace(". ", "").replace("*", "")
+            for item in split_on_line_break]
+        cleaned_intents = [re.sub(r'\d+', '', text) for text in intents_list]
+        cleaned_intents = [ci for ci in cleaned_intents if ci != ""]
+    else:
+        # JSON variation
+        pattern = r"```(?:\w+)?\n(.*?)```"
+        matches = re.findall(pattern, text, flags=re.DOTALL)
+        if len(matches) > 0:
+            # Making the assumption that the first code block that shows up is the one we want
+            matched = matches[0]
+            matched_to_json = json.loads(matched)
+            cleaned_intents = [i["intention"] for i in matched_to_json["intentions"]]
+        else:
+            cleaned_intents = []
+
+    # Only return 5 items as we only ask for 5 intents
+    return cleaned_intents[:5]
 
 
 class Prompter:

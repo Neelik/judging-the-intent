@@ -2,6 +2,7 @@ import logging
 import ir_datasets
 from ir_datasets_subsample import register_subsamples
 import pandas as pd
+from peewee import fn, SQL
 from judging_the_intent import __version__
 from judging_the_intent.db.schema import (
     Annotation,
@@ -10,6 +11,7 @@ from judging_the_intent.db.schema import (
     Query,
     Triple,
     Intent,
+    Document
 )
 from pathlib import Path
 from typing import Optional
@@ -38,14 +40,20 @@ class Evaluator:
             :param human: Flag to indicate whether to set the model to human for ground truth retrieval.
         """
         if human:
-            fine_tuned = False
-            model_name = "human"
-            if self._intent_aware:
-                prompt_style = "human-intent"
+            if self._intent_source == "generated":
+                fine_tuned = False
                 intent_aware = False
-            else:
                 prompt_style = "human"
-                intent_aware = self._intent_aware
+                model_name = "human"
+            else:
+                fine_tuned = False
+                model_name = "human"
+                if self._intent_aware:
+                    prompt_style = "human-intent"
+                    intent_aware = False
+                else:
+                    prompt_style = "human"
+                    intent_aware = self._intent_aware
         else:
             model_name = self._model
             prompt_style = self._prompt_style
@@ -78,14 +86,20 @@ class Evaluator:
             .alias("dataset_queries")
         )
 
-        if self._intent_aware:
+        # Control intent_aware value to allow for proper handling of the below conditionals in the case of loading the
+        # human annotations with no intent for the evaluation of judgments with generated intents
+        if self._intent_source == "generated" and config.model_name == "human":
+            intent_aware = False
+        else:
+            intent_aware = self._intent_aware
+
+        if intent_aware:
             # Get all Triple objects that have ForeignKey relationships to the dataset Query objects, that have Intents
             triples = (
                 Triple.select(
                     Triple,
                     Intent.source.alias("intent_source")
                 )
-                .where(Triple.intent.is_null(False))
                 .join(dataset_queries, on=(Triple.query == dataset_queries.c.id))
                 .join_from(Triple, Query)
                 .join(Intent, on=(Triple.intent == Intent.id))
@@ -104,25 +118,27 @@ class Evaluator:
         model_annotations_from_db = (
             Annotation.select(
                 Annotation,
-                Triple.query.alias("query_id"),
                 Triple.intent.alias("intent_id"),
                 Triple.document.alias("doc_id"),
+                Query.q_id.alias("query_id"),
             )
             .where(Annotation.result.in_([0, 1, 2, 3, 4]))
             .join(Config, on=(Annotation.config == config.id))
             .join_from(Annotation, triples,
                        on=(Annotation.triple == triples.c.id))
             .join_from(Annotation, Triple)
+            .join_from(Triple, Query)
         )
 
         annotations = pd.DataFrame(model_annotations_from_db.dicts())
-        print(f"Size before dedupe: {annotations.shape[0]}")
+
+        judgment_type = "human" if "human" in config.model_name else "LLM"
+        LOGGER.info(f"\tSize before dedupe: {annotations.shape[0]}")
         # For some reason, there are duplicates of triples (which by definition should be unique), so manual de-duplication is needed
         annotations = annotations.drop_duplicates(subset=["triple"])
-        print(f"Size after dedupe: {annotations.shape[0]}")
-
+        LOGGER.info(f"\tSize after dedupe: {annotations.shape[0]}")
         LOGGER.info(
-            f"\tLoaded {annotations.shape[0]} judgments.")
+            f"\tLoaded {annotations.shape[0]} {judgment_type} judgments.")
 
         return annotations
 
@@ -130,6 +146,10 @@ class Evaluator:
         # Retrieve the Annotation entries from the database (predictions)
         model_annotations = self._retrieve_database_annotations(self._get_config())
         model_annotations = model_annotations[["query_id", "intent_id", "doc_id", "result"]]
+
+        # We need to handle the max pooling in the case of generated intents
+        if self._intent_source == "generated":
+            model_annotations = model_annotations.loc[model_annotations.groupby(["query_id", "doc_id"])["result"].idxmax()]
 
         if self._qrels_true_path is not None:
             # Load the human judgments (ground truth) for comparison
@@ -147,16 +167,18 @@ class Evaluator:
             human_annotations.rename(columns={"result": "rel"}, inplace=True)
             human_df = human_annotations[["query_id", "intent_id", "doc_id", "rel"]]
 
+        # It can happen that intents are not generated for some query-doc pairs (YAY, LLM nonsense), so we drop the unmatched ones here
+        model_pairs = [f"{a}#{b}" for a,b in zip(model_annotations["query_id"].values, model_annotations["doc_id"].values)]
+        human_pairs = [f"{a}#{b}" for a,b in zip(human_df["query_id"].values, human_df["doc_id"].values)]
+        diff = set(human_pairs) - set(model_pairs)
+        human_df = human_df.apply(lambda x: x if f"{x['query_id']}#{x['doc_id']}" not in diff else None, axis=1)
+        human_df.dropna(how="all", inplace=True)
+
         assert model_annotations.shape[0] == human_df.shape[0]
 
-        # Sanity check that the judgement from q-d pair to q,a,d triple did not change
-        # if "clueweb" in self._dataset:
-        #     # Load subsamples
-        #     register_subsamples()
-        # dataset = ir_datasets.load(str(self._dataset))
-        # original_qrels = dataset.qrels_iter()
+        if self._target_type == "binary":
+            human_df["rel"] = human_df["rel"].apply(lambda x: 1 if x >= 1 else 0)
 
-        human_df["rel"] = human_df["rel"].apply(lambda x: 1 if x >= 1 else 0)
         true_list = human_df["rel"].values.tolist()
         pred_list = model_annotations["result"].values.tolist()
 

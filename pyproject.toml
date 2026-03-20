@@ -14,7 +14,8 @@ dependencies = [
     "ir_datasets_subsample @ git+https://github.com/webis-de/ecir25-corpus-subsampling.git#subdirectory=ir_datasets_subsample",
     "datasets>=2.19.2",
     "peft==0.10.0",
-    "torch==2.2.0",
+#    "torch==2.2.0",
+    "torch==2.6.0",
     "tqdm",
     "requests",
     "faiss-gpu>=1.7.2",
@@ -24,12 +25,14 @@ dependencies = [
     "pyserini==0.22.0",
     "scikit-learn>=1.7.0",
     "python-terrier>=0.13.0",
+    "pyterrier-alpha",
     "transformers>=4.36.0",
     "protobuf>=6.32.0",
     "sentencepiece>=0.2.1",
     "onnxruntime==1.23",
-#    "pyterrier_t5 @ git+https://github.com/terrierteam/pyterrier_t5.git",
-#    "pyterrier_colbert @ git+https://github.com/terrierteam/pyterrier_colbert.git",
+    "pyterrier-dr",
+    "pyterrier_t5 @ git+https://github.com/terrierteam/pyterrier_t5.git",
+    "pyterrier-genrerank @ git+https://github.com/emory-irlab/pyterrier_genrank.git",
 ]
 
 [dependency-groups]

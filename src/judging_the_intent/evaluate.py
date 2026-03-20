@@ -24,6 +24,11 @@ def main():
         LOGGER.warning("Intent aware evaluation requires --intent_aware.")
         sys.exit(1)
 
+    # We've opted to use the choices argument to control the intent_source, but that makes a default impossible.
+    # This code snippet acts as a functional default control
+    if not args.intent_source:
+        args.intent_source = "human"
+
     checkpointed = False
     if args.checkpointed_model:
         checkpointed = True
