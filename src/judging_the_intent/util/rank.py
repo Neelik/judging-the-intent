@@ -2,13 +2,14 @@ import logging
 import os
 from typing import Optional, TypeVar
 from ir_datasets_subsample import register_subsamples
-from scipy.stats import kendalltau
+from scipy.stats import kendalltau, spearmanr
 from pyterrier_t5 import MonoT5ReRanker
 from rerank import LLMReRanker
 import pyterrier as pt
 import pyterrier_alpha as pta
 from pyterrier_dr import FlexIndex, TctColBert
 import pandas as pd
+from sentence_transformers import CrossEncoder
 
 from pathlib import Path
 register_subsamples()
@@ -52,7 +53,8 @@ def get_index(dataset_id: str, dense: bool = False, model: Optional[TPTTransform
         return pt.IndexFactory.of(str(index_dir), memory=True)
 
 
-def rank(dataset_id: str, human_annotations: pd.DataFrame, llm_annotations: pd.DataFrame, intent_source: Optional[str] = None):
+def rank(dataset_id: str, human_annotations: pd.DataFrame, llm_annotations: pd.DataFrame, intent_aware: bool,
+         intent_source: Optional[str] = None):
     pt_dataset = pt.datasets.get_dataset("irds:" + dataset_id)
     if "misinfo" in dataset_id:
         query_field = "title"
@@ -82,14 +84,25 @@ def rank(dataset_id: str, human_annotations: pd.DataFrame, llm_annotations: pd.D
     tct_colber_index = get_index(dataset_id, dense=True, model=tct_colbert)
     tct_colbert_retriever = tct_colbert >> tct_colber_index.np_retriever() % 100
 
+    # Cross Encoder ranker
+    # Max length is set to 512 as that's the longest the model can take
+    cross_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L12-v2", max_length=512)
+    def _cross_encoder_apply(df: pd.DataFrame):
+        return cross_model.predict(list(zip(df["query"].values, df["text"].values)), show_progress_bar=False)
+
+    cross_encoder_doc_scorer = pt.apply.doc_score(_cross_encoder_apply, batch_size=32)
+    cross_encoder = bm25 % 100 >> pt.text.get_text(pt_dataset, "text") >> cross_encoder_doc_scorer
+
     # LLM ranker
     llm_reranker = LLMReRanker("castorini/rank_vicuna_7b_v1_fp16", top_k_candidates=10)
     llm_reranker = bm25 % 10 >> pt.text.get_text(pt_dataset, "text") >> llm_reranker
 
     # Experiment variables for PyTerrier pipeline
-    retrieval_systems = [baseline_bm25, tct_colbert_retriever, mono_t5, llm_reranker]
-    system_names = ["BM25", "TCTColbert", "MonoT5", "RankVicuna"]
-    metrics = ["ndcg_cut.10", "recip_rank"]
+    retrieval_systems = [baseline_bm25, tct_colbert_retriever, mono_t5, cross_encoder, llm_reranker]
+    system_names = ["BM25", "TCTColbert", "MonoT5", "CrossEncoder", "RankVicuna"]
+    # retrieval_systems = [cross_encoder]
+    # system_names = ["CrossEncoder"]
+    metrics = ["ndcg_cut.10", "ndcg_cut.20", "recip_rank", "P_20", "map"]
     baseline = baseline_bm25.transform(pt_dataset.get_topics())
 
     # Configure save pathways
@@ -98,6 +111,17 @@ def rank(dataset_id: str, human_annotations: pd.DataFrame, llm_annotations: pd.D
     save_dir = Path(__file__).parent.parent.parent.parent.joinpath("datasets", "outputs", dataset_track)
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    # Setup distinct names properly depending on generated intent type
+    if intent_source == "generated-intent":
+        human_names = [f"hum_gen_intent_{s}" for s in system_names]
+        llm_names = [f"llm_gen_intent_{s}" for s in system_names]
+    elif intent_source == "generated-subtopic":
+        human_names = [f"hum_gen_subtopic_{s}" for s in system_names]
+        llm_names = [f"llm_gen_subtopic_{s}" for s in system_names]
+    else:
+        human_names = [f"hum_{'intent_' if intent_aware else ''}{s}" for s in system_names]
+        llm_names = [f"llm_{'intent_' if intent_aware else ''}{s}" for s in system_names]
+
     # Human QRels
     LOGGER.info(f"\tRunning experiment for human annotations of {dataset_id}")
     human_outcome = pt.Experiment(
@@ -105,7 +129,7 @@ def rank(dataset_id: str, human_annotations: pd.DataFrame, llm_annotations: pd.D
         topics=topics,
         qrels=human_annotations,
         eval_metrics=metrics + [pta.RBO(baseline, p=0.9)],
-        names=[f"hum{'_gen' if intent_source == 'generated' else ''}_{s}" for s in system_names],
+        names=human_names,
         save_format=(pd.read_csv, pd.DataFrame.to_csv),
         save_dir=str(save_dir),
         save_mode="overwrite"
@@ -118,7 +142,7 @@ def rank(dataset_id: str, human_annotations: pd.DataFrame, llm_annotations: pd.D
         topics=topics,
         qrels=llm_annotations,
         eval_metrics=metrics + [pta.RBO(baseline, p=0.9)],
-        names=[f"llm{'_gen' if intent_source == 'generated' else ''}_{s}" for s in system_names],
+        names=llm_names,
         save_format=(pd.read_csv, pd.DataFrame.to_csv),
         save_dir=str(save_dir),
         save_mode="overwrite"
@@ -127,20 +151,35 @@ def rank(dataset_id: str, human_annotations: pd.DataFrame, llm_annotations: pd.D
     return human_outcome, llm_outcome
 
 
-def rank_correlation(model, dataset, metric_name="all"):
-    rank_output_path = Path(__file__).parent.parent.parent.parent.joinpath("trec-web", "rank-output")
+def rank_correlation(model: str, dataset: str, metric_name: str = "ndcg_cut.10", intent_source: str = "human",
+                     intent_aware: bool = False) -> dict:
+    rank_output_path = Path(__file__).parent.parent.parent.parent.joinpath("datasets", "outputs", "rank")
+    suffix = (f"{'-gen' if 'generated' in intent_source else ''}{'-subtopic' if 'subtopic' in intent_source else ''}"
+              f"-gt{'-intent' if intent_aware else ''}.tsv")
+
     human_performance = pd.read_csv(Path(rank_output_path).joinpath(
-        f"{model.replace(':', '-')}-{dataset.replace('/', '-')}-human-gt.tsv"),
+        f"{model.replace('/', '_')}-{dataset.replace('/', '-')}-human{suffix}"),
         sep="\t", names=["ranker", metric_name])
+
     llm_performance = pd.read_csv(Path(rank_output_path).joinpath(
-        f"{model.replace(':', '-')}-{dataset.replace('/', '-')}-llm-gt-intent.tsv"),
+        f"{model.replace('/', '_')}-{dataset.replace('/', '-')}-llm{suffix}"),
         sep="\t", names=["ranker", metric_name])
-    llm_performance_si = pd.read_csv(Path(rank_output_path).joinpath(
-        f"{model.replace(':', '-')}-{dataset.replace('/', '-')}-llm-gt-no-intent.tsv"),
-        sep="\t", names=["ranker", metric_name])
+    # llm_performance_si = pd.read_csv(Path(rank_output_path).joinpath(
+    #     f"{model.replace(':', '-')}-{dataset.replace('/', '-')}-llm-gt-no-intent.tsv"),
+    #     sep="\t", names=["ranker", metric_name])
+    k_tau, k_tau_p = kendalltau(human_performance[metric_name].values, llm_performance[metric_name].values)
+    spearman_rho, spearman_rho_p = spearmanr(human_performance[metric_name].values, llm_performance[metric_name].values)
 
-    LOGGER.info(f"INTENT-DRIVEN RANK CORRELATION - {metric_name.capitalize()}")
-    print(kendalltau(human_performance[metric_name].values, llm_performance[metric_name].values))
+    results = {
+        "model": model,
+        "dataset": dataset,
+        "k_tau": k_tau,
+        "k_tau_p": k_tau_p,
+        "spearman_rho": spearman_rho,
+        "spearman_rho_p": spearman_rho_p
+    }
 
-    LOGGER.info(f"INTENT-FREE RANK CORRELATION - {metric_name.capitalize()}")
-    print(kendalltau(human_performance[metric_name].values, llm_performance_si[metric_name].values))
+    return results
+
+    # LOGGER.info(f"INTENT-FREE RANK CORRELATION - {metric_name.capitalize()}")
+    # print(kendalltau(human_performance[metric_name].values, llm_performance_si[metric_name].values))

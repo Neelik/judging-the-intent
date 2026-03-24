@@ -1,12 +1,14 @@
 import csv
 import ir_datasets
+import pandas as pd
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
+from datetime import datetime
 from ir_datasets.indices import Docstore
 from ir_datasets.formats import TrecQrel, GenericQuery
 from ir_datasets_subsample import register_subsamples
 from collections.abc import Iterable
 from typing import Optional
-
+from sentence_transformers import SentenceTransformer, util
 from peewee import ProgrammingError
 from tqdm import tqdm
 from pathlib import Path
@@ -21,6 +23,31 @@ from judging_the_intent.db.schema import (
 
 import logging
 LOGGER = logging.getLogger(__name__)
+
+
+def extract_timestamp(file_path) -> int:
+    """
+        Extract timestamp from file name
+
+        :param file_path: Path to the file to be parsed
+        :return: Timestamp as int
+    """
+    call_time = datetime.now().timestamp()
+    try:
+        filename = file_path.name
+        timestamp_str = filename.split('_')[0]
+        return int(timestamp_str)
+    except (ValueError, IndexError):
+        return int(call_time)
+
+
+def get_latest_file_by_timestamp(directory: Path, pattern: str="*generated_*.tsv") -> Path:
+    files = directory.glob(pattern)
+    if not files:
+        raise FileNotFoundError(f"No files matching: {pattern} in directory {directory}.")
+
+    latest_file = max(files, key=extract_timestamp)
+    return latest_file
 
 
 def load_text_data(dataset_identifier: str, docs_store: Docstore, query_path: Path, intent_path: Path, qrels_path: Path) -> bool:
@@ -138,7 +165,7 @@ def load_ir_dataset(dataset_identifier: str, intent: bool) -> None:
     queries_loaded = load_queries(dataset_identifier, dataset.queries_iter(), dataset.queries_count())
     if intent:
         # Load the intents into the database
-        load_intents(dataset_identifier, Path.cwd())
+        load_ird_intents(dataset_identifier, Path.cwd())
 
     load_qrels(dataset_identifier, dataset.docs_store(), dataset.qrels_iter(), dataset.qrels_count(), queries_loaded)
 
@@ -192,7 +219,7 @@ def load_queries(dataset_identifier, q_iter: Iterable[GenericQuery], q_count: in
     return queries
 
 
-def load_intents(dataset_identifier: str, intent_path: Optional[Path] = None) -> bool:
+def load_ird_intents(dataset_identifier: str, intent_path: Optional[Path] = None) -> bool:
     """
         Function to load LLM-generated intent data into the database.
 
@@ -202,6 +229,84 @@ def load_intents(dataset_identifier: str, intent_path: Optional[Path] = None) ->
     """
     raise NotImplemented("Intents are not currently supported in ir_datasets.")
 
+def load_generated_intents(dataset_identifier: str, generation_type: str, intent_path: Path) -> bool:
+    """
+        Function to load LLM-generated intent data into the database.
+
+        :param dataset_identifier: Name of the Dataset
+        :param generation_type: Type of intent generation being used, options being intent or subtopic
+        :param intent_path: Path object giving the filepath to the intents
+        :return: True if intents were loaded, False otherwise
+    """
+    assert generation_type in ("intent", "subtopic")
+
+    # Load the generated intents
+    generated_intents = pd.read_csv(Path(intent_path), sep="\t")
+    generated_intents = generated_intents[generated_intents.document_text != ""]
+
+    if "similarity" not in generated_intents.columns:
+        # Determine sentence similarity between the query and the generated intent/subtopic
+
+        sim_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+        tqdm.pandas(desc="Calculating query-intent similarity...")
+        generated_intents["similarity"] = generated_intents.progress_apply(
+            lambda row: util.pytorch_cos_sim(sim_model.encode(row["query_text"], convert_to_tensor=True,
+                                                              show_progress_bar=False),
+                                             sim_model.encode(row["intent_text"], convert_to_tensor=True,
+                                                              show_progress_bar=False)), axis=1)
+
+        tqdm.pandas(desc="Extracting similarity scores...")
+        generated_intents["similarity"] = generated_intents["similarity"].progress_apply(
+            lambda tens: tens.cpu().detach().numpy().flatten()[0])
+        generated_intents.to_csv(Path(intent_path), sep="\t", index=False)
+
+    # Grab ones that are of medium to medium-high similarity. We want intents/subtopics that are semantically similar
+    # enough to be related, but dissimilar enough to be distinct and diverse.
+    fuzzy_matches = generated_intents[(generated_intents["similarity"] <= 0.85) & (generated_intents["similarity"] >= 0.75)]
+
+    # Iterate over the unique query_ids, and sample 5 intents/subtopics for each query
+    unique_qids = fuzzy_matches.query_id.unique()
+    db_writable = []
+    for qid in unique_qids:
+        subframe = fuzzy_matches[fuzzy_matches["query_id"] == qid]
+        sampled = subframe.sample(n=min(5, subframe.shape[0]), random_state=42)
+        records = sampled.to_dict("records")
+        db_writable.extend(records)
+
+    total_insertions = 0
+    if generation_type == "subtopic":
+        # For every entry in db_writable, retrieve the Query and the related Triples (to get all documents for the query)
+        for pos, record in tqdm(enumerate(db_writable), total=len(db_writable), desc=">> Writing new intents to database..."):
+            query = (Query.select().where((Query.dataset_name_id == dataset_identifier) & (Query.id == record["query_id"])).get_or_none())
+            if query is not None:
+                triples = (
+                    Triple.select()
+                    .where((Triple.query == query) & (Triple.intent.is_null()))
+                )
+                triples_tups = triples.namedtuples()
+                documents = [tt.document for tt in triples_tups]
+                triples_for_db = []
+
+                # Create the Intent entry
+                intent_db = Intent.create(i_id=f"gen_{generation_type}_{pos}", query=query, text=record["intent_text"],
+                                          source=f"generated-{generation_type}")
+
+                [triples_for_db.append({"intent": intent_db, "query_id": record["query_id"], "document_id": d}) for d in documents]
+                # Create the Triple entries
+                inserted = Triple.insert_many(triples_for_db).on_conflict_ignore().as_rowcount().execute()
+                total_insertions += inserted
+
+            else:
+                LOGGER.debug(f"Query {record['query_id']} not found in database.")
+                continue
+
+        LOGGER.info(f"Inserted {total_insertions} Triples.")
+        return total_insertions > 0
+
+    else:
+        # Handling for generated-intent will go here in the future
+        return False
 
 def main():
     """
@@ -219,24 +324,56 @@ def main():
         help="Where dataset files are located.",
     )
     ap.add_argument("--intent", action="store_true", default=False, help="Include search intents in Triples creation")
+    ap.add_argument("--load_generated_intents", action="store_true", default=False, help="Load generated intents/subtopics into the database")
+    ap.add_argument("--generation_type", type=str, required=False, choices=("subtopic", "intent"), help="Defines the generation type: 'subtopic' or 'intent'")
+    ap.add_argument("--intent_dir", type=Path, default=None, help="Path to the directory containing intent file.")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO)
 
-    # load the dataset from ir_datasets
-    for dataset_identifier in args.datasets:
-        LOGGER.info(f"\tLoading dataset {dataset_identifier}...")
-        try:
-            Dataset.create(name=dataset_identifier)
-        except ProgrammingError as p_error:
-            LOGGER.error(f"\t{str(p_error)}Did you run create_db?")
-            break
-        if "clueweb" in dataset_identifier:
-            load_clueweb(dataset_identifier, args.data_dir)
-        elif "dl-mia" in dataset_identifier:
-            load_dl_mia(dataset_identifier, args.data_dir)
-        else:
-            load_ir_dataset(dataset_identifier, args.intent)
+    # This branch handles loading generated intents directly into the database
+    if args.load_generated_intents:
+        if args.intent:
+            LOGGER.warning("\t--intent is ignored and has no effect when --load_generated_intents is True.")
+
+        # Check that a path to the intents to be loaded exists, i.e., have they been generated already?
+        if args.intent_dir is None:
+            LOGGER.warning(f"\t--intent_dir not set. Path to directory will be inferred by dataset identifier provided in --datasets. To prevent this warning, pass a valid path to --intent_dir.")
+
+        # Check if the generation type is set
+        if args.generation_type is None:
+            raise RuntimeError("--generation_type is required when --load_generated_intents is True.")
+
+        for dataset_identifier in args.datasets:
+            if args.intent_dir is None:
+                # Infer the intent path if necessary
+                dataset_name_split = dataset_identifier.split("/")
+                dataset_top_level_name = dataset_name_split[1]
+                dataset_track = dataset_name_split[-1]
+                data_path = Path(args.data_dir).joinpath(dataset_top_level_name, dataset_track, "intent")
+            else:
+                data_path = args.intent_dir
+
+            latest_intents_file = get_latest_file_by_timestamp(data_path)
+
+            load_generated_intents(dataset_identifier=dataset_identifier, intent_path=latest_intents_file,
+                                   generation_type=args.generation_type)
+
+    else:
+        # This branch handles loading a dataset from ir_datasets into the database
+        for dataset_identifier in args.datasets:
+            LOGGER.info(f"\tLoading dataset {dataset_identifier}...")
+            try:
+                Dataset.create(name=dataset_identifier)
+            except ProgrammingError as p_error:
+                LOGGER.error(f"\t{str(p_error)}Did you run create_db?")
+                break
+            if "clueweb" in dataset_identifier:
+                load_clueweb(dataset_identifier, args.data_dir)
+            elif "dl-mia" in dataset_identifier:
+                load_dl_mia(dataset_identifier, args.data_dir)
+            else:
+                load_ir_dataset(dataset_identifier, args.intent)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ def main():
     ap.add_argument("--intent_aware", action="store_true", default=False, help="Run the intent-aware evaluation.")
     ap.add_argument("--checkpointed_model", action="store_true", help="Set to true if evaluation is on annotations from a fine-tuned model.")
     ap.add_argument("--prompt_style", required=True, choices=("human", "human-intent", "binary", "binary-intent", "dna", "dna-intent"), help="Prompt style identifier.")
-    ap.add_argument("--intent_source", type=str, choices=("human", "generated"), help="Intent source identifier.")
+    ap.add_argument("--intent_source", type=str, choices=("human", "generated-intent", "generated-subtopic"), help="Intent source identifier.")
     args = ap.parse_args()
 
     # sanity check

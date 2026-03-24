@@ -9,8 +9,9 @@ from peewee import JOIN, EXCLUDED
 from tqdm import tqdm
 
 from judging_the_intent import __version__
+from judging_the_intent.db import DATABASE
 from judging_the_intent.util.human_annotation import load_qrels_as_human_annotations
-from judging_the_intent.util.prompter import Prompter
+from judging_the_intent.util.prompter import AnnotationPrompter
 from judging_the_intent.db.schema import (
     Annotation,
     Config,
@@ -32,7 +33,7 @@ class Annotator:
     :param model: Name of the HuggingFace model to be used in inference.
     """
 
-    def __init__(self, model: str, prompter: Prompter, batch_size: int, max_input_length: int, max_doc_length: int,
+    def __init__(self, model: str, prompter: AnnotationPrompter, batch_size: int, max_input_length: int, max_doc_length: int,
                  intent_source: str) -> None:
         self._model_name = model
         self._model = self._configure_model()
@@ -203,7 +204,7 @@ class Annotator:
             LOGGER.info("\tfound model %s (version %s) in DB", self._model_name, __version__)
 
         unannotated_triples = self._load_unannotated_triples(config)
-        count = unannotated_triples.count()
+        count = unannotated_triples.count(database=DATABASE)
         unannotated_triples_dicts = unannotated_triples.dicts()
         LOGGER.info("\t%s triples left to annotate", count)
 
@@ -265,7 +266,7 @@ def main():
     ap.add_argument("--max_input_length", type=int, help="Max input length.", default=2048)
     # Default is set to avoid OOM on GPU
     ap.add_argument("--max_doc_length", type=int, help="Max document length.", default=1400)
-    ap.add_argument("--intent_source", type=str, choices=("human", "generated"), help="Intent source identifier.")
+    ap.add_argument("--intent_source", type=str, choices=("human", "generated-intent", "generated-subtopic"), help="Intent source identifier.")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='{levelname} - {asctime} - {module} - {message}', style="{",
@@ -286,7 +287,7 @@ def main():
 
     else:
         # Define the Prompter to be attached to the Annotator
-        prompter = Prompter(args.prompt_style)
+        prompter = AnnotationPrompter(args.prompt_style)
 
         LOGGER.info(f"\nInitializing annotation run with config:\n\tMODEL:\t{args.model}\n\tCHECKPOINT:\t"
                     f"{('true' if args.checkpoint_path else 'false')}\n\tPROMPT:\t{args.prompt_style}")

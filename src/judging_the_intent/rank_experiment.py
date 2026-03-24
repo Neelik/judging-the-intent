@@ -5,6 +5,7 @@ from judging_the_intent.util.eval import Evaluator
 from judging_the_intent.util.rank import rank, rank_correlation
 from tqdm import tqdm
 from typing import Optional
+from shutil import get_terminal_size
 
 
 LOGGER = logging.getLogger(__file__)
@@ -33,7 +34,7 @@ class RankEvaluator(Evaluator):
         human_annotations_from_db = self._retrieve_database_annotations(human_config)
         llm_annotations_from_db = self._retrieve_database_annotations(llm_config)
 
-        if self._intent_source == "generated":
+        if "generated" in self._intent_source:
             llm_annotations_from_db = llm_annotations_from_db.loc[
                 llm_annotations_from_db.groupby(["query_id", "doc_id"])["result"].idxmax()]
 
@@ -61,14 +62,29 @@ class RankEvaluator(Evaluator):
 
         assert llm_annotations_from_db.shape[0] == human_annotations_from_db.shape[0]
 
-        return rank(self._dataset, human_annotations_from_db, llm_annotations_from_db, intent_source=self._intent_source if self._intent_source == "generated" else None)
+        return rank(dataset_id=self._dataset,
+                    human_annotations=human_annotations_from_db,
+                    llm_annotations=llm_annotations_from_db,
+                    intent_aware=self._intent_aware,
+                    intent_source=self._intent_source if "generated" in self._intent_source else None)
 
-    # def corr(self):
-    #     # nDCG correlation
-    #     rank_correlation(self._model, self._dataset)
-    #
-    #     # ERR correlation
-    #     rank_correlation(self._model, self._dataset, "err")
+    def corr(self):
+        # nDCG correlation
+        ndcg_corr = rank_correlation(model=self._model, dataset=self._dataset, intent_source=self._intent_source,
+                                     intent_aware=self._intent_aware)
+        print(f"Correlation results for NDCG@10:\t{ndcg_corr}")
+
+        # ERR correlation
+        err_corr = rank_correlation(model=self._model, dataset=self._dataset, metric_name="recip_rank",
+                                    intent_source=self._intent_source, intent_aware=self._intent_aware)
+        print(f"Correlation results for ERR:\t{err_corr}")
+
+        # # RBO Correlation
+        # rbo_corr = rank_correlation(model=self._model, dataset=self._dataset, metric_name="RBO(p=0.9)",
+        #                             intent_source=self._intent_source, intent_aware=self._intent_aware)
+        # print(f"Correlation results for RBO:\t{rbo_corr}")
+        print("-" * get_terminal_size(fallback=(80, 24)).columns)
+
 
 
 def main():
@@ -84,8 +100,9 @@ def main():
     ap.add_argument("--prompt_style", required=True,
                     choices=("human", "human-intent", "binary", "binary-intent", "dna", "dna-intent"),
                     help="Prompt style identifier.")
-    ap.add_argument("--intent_source", type=str, choices=("human", "generated"), help="Intent source identifier.")
-    # ap.add_argument("-c", "--corr", dest="corr", action="store_true", help="Flag to indicate running the correlation analysis")
+    ap.add_argument("--intent_source", type=str,
+                    choices=("human", "generated-intent", "generated-subtopic"), help="Intent source identifier.")
+    ap.add_argument("--corr", action="store_true", help="Flag to indicate running the correlation analysis")
     args = ap.parse_args()
 
     # We've opted to use the choices argument to control the intent_source, but that makes a default impossible.
@@ -93,7 +110,7 @@ def main():
     if not args.intent_source:
         args.intent_source = "human"
 
-    if args.intent_source == "generated" and not args.intent_aware:
+    if args.intent_source in ["generated-intent", "generated-subtopic"] and not args.intent_aware:
         LOGGER.warning(f"Ranking with intent_source of {args.intent_source} is not supported without intent_aware. Setting intent_aware to True. Please add this flag in subsequent runs.")
         args.intent_aware = True
 
@@ -101,28 +118,29 @@ def main():
     if args.checkpointed_model:
         checkpointed = True
 
-    # if not args.corr:
-    # Create output directory
-    output_path = Path(__file__).parent.parent.parent.joinpath("datasets", "outputs", "rank")
-    output_path.mkdir(exist_ok=True)
+    if not args.corr:
+        # Create output directory
+        output_path = Path(__file__).parent.parent.parent.joinpath("datasets", "outputs", "rank")
+        output_path.mkdir(exist_ok=True)
 
-    pbar = tqdm(args.datasets, total=len(args.datasets), desc=">> Beginning PyTerrier ranking...\t")
-    for dataset in pbar:
-        pbar.set_description(f">> Running PyTerrier ranking for {dataset}:\t")
-        suffix = f"{'-gen' if args.intent_source == 'generated' else ''}-gt{'-intent' if args.intent_aware else ''}.tsv"
-        human_outcome, llm_outcome = RankEvaluator(
-            model=args.model, dataset=dataset, target_type="binary", prompt_style=args.prompt_style,
-            intent_aware=args.intent_aware, checkpointed_model=checkpointed, intent_source=args.intent_source).run()
-        human_outcome.to_csv(Path(output_path).joinpath(
-            f"{args.model.replace('/', '_')}-{dataset.replace('/', '-')}-human{suffix}"),
-            index=False, sep="\t")
-        llm_outcome.to_csv(Path(output_path).joinpath(
-            f"{args.model.replace('/', '_')}-{dataset.replace('/', '-')}-llm{suffix}"),
-            index=False, sep="\t")
-    # else:
-    #     for dataset in args.datasets:
-    #         for model in args.models:
-    #             RankEvaluator(model, "", dataset).corr()
+        pbar = tqdm(args.datasets, total=len(args.datasets), desc=">> Beginning PyTerrier ranking...\t")
+        for dataset in pbar:
+            pbar.set_description(f">> Running PyTerrier ranking for {dataset}:\t")
+            suffix = f"{'-gen' if 'generated' in args.intent_source else ''}{'-subtopic' if 'subtopic' in args.intent_source else ''}-gt{'-intent' if args.intent_aware else ''}.tsv"
+            human_outcome, llm_outcome = RankEvaluator(
+                model=args.model, dataset=dataset, target_type="binary", prompt_style=args.prompt_style,
+                intent_aware=args.intent_aware, checkpointed_model=checkpointed, intent_source=args.intent_source).run()
+            human_outcome.to_csv(Path(output_path).joinpath(
+                f"{args.model.replace('/', '_')}-{dataset.replace('/', '-')}-human{suffix}"),
+                index=False, sep="\t")
+            llm_outcome.to_csv(Path(output_path).joinpath(
+                f"{args.model.replace('/', '_')}-{dataset.replace('/', '-')}-llm{suffix}"),
+                index=False, sep="\t")
+    else:
+        for dataset in args.datasets:
+            RankEvaluator(model=args.model, dataset=dataset, target_type="binary", prompt_style=args.prompt_style,
+                          intent_aware=args.intent_aware, checkpointed_model=checkpointed,
+                          intent_source=args.intent_source).corr()
 
 
 if __name__ == "__main__":

@@ -33,6 +33,12 @@ class Evaluator:
         self._prompt_style = prompt_style
         self._intent_source = intent_source
 
+    def get_config(self, human:bool = False) -> Config:
+        return self._get_config(human=human)
+
+    def get_database_annotations(self, config: Config) -> pd.DataFrame:
+        return self._retrieve_database_annotations(config=config)
+
     def _get_config(self, human: bool = False) -> Config:
         """
             Internal method to retrieve the Config entity that will drive the retrieval of Annotations
@@ -40,7 +46,7 @@ class Evaluator:
             :param human: Flag to indicate whether to set the model to human for ground truth retrieval.
         """
         if human:
-            if self._intent_source == "generated":
+            if "generated" in self._intent_source:
                 fine_tuned = False
                 intent_aware = False
                 prompt_style = "human"
@@ -86,12 +92,22 @@ class Evaluator:
             .alias("dataset_queries")
         )
 
+        # Look for items to exclude for a sanity check one-off
+        # dataset_name_split = self._dataset.split("/")
+        # dataset_top_level_name = dataset_name_split[1]
+        # dataset_track = dataset_name_split[-1]
+        # decision_changes_dir = Path(__file__).parent.parent.parent.parent.joinpath("datasets",
+        #                                                                            dataset_top_level_name,
+        #                                                                            dataset_track, "decision_changes",
+        #                                                                            "judgements_changed.csv")
+        # to_ignore = pd.read_csv(Path(decision_changes_dir))
+
         # Control intent_aware value to allow for proper handling of the below conditionals in the case of loading the
         # human annotations with no intent for the evaluation of judgments with generated intents
-        if self._intent_source == "generated" and config.model_name == "human":
+        if "generated" in self._intent_source and config.model_name == "human":
             intent_aware = False
         else:
-            intent_aware = self._intent_aware
+           intent_aware = self._intent_aware
 
         if intent_aware:
             # Get all Triple objects that have ForeignKey relationships to the dataset Query objects, that have Intents
@@ -104,6 +120,18 @@ class Evaluator:
                 .join_from(Triple, Query)
                 .join(Intent, on=(Triple.intent == Intent.id))
                 .where(Intent.source == self._intent_source)
+                # Only uncomment this if you are looking to sanity check agreement and have to_ignore defined above
+                # .except_(
+                #     Triple.select(
+                #         Triple,
+                #         Intent.source.alias("intent_source"),
+                #     )
+                #     .where((Triple.document.in_(to_ignore["doc_id"].tolist()))
+                #            & (Query.q_id.in_(to_ignore["query_id"].tolist())))
+                #     .join_from(Triple, Query)
+                #     .join(Intent, on=(Triple.intent == Intent.id))
+                #     .where(Intent.source == self._intent_source)
+                # )
             )
 
         else:
@@ -148,7 +176,7 @@ class Evaluator:
         model_annotations = model_annotations[["query_id", "intent_id", "doc_id", "result"]]
 
         # We need to handle the max pooling in the case of generated intents
-        if self._intent_source == "generated":
+        if "generated" in self._intent_source:
             model_annotations = model_annotations.loc[model_annotations.groupby(["query_id", "doc_id"])["result"].idxmax()]
 
         if self._qrels_true_path is not None:
